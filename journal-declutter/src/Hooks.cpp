@@ -10,6 +10,7 @@ namespace Hooks
 
 		CallbackFn* g_origRequestQuestsData{ nullptr };
 		CallbackFn* g_origRequestObjectivesData{ nullptr };
+		CallbackFn* g_origToggleQuestActiveStatus{ nullptr };
 
 		// The game fills TitleList.entryList in here and then calls back into the page
 		// (onQuestsDataComplete), which sorts and draws. We filter right after and redraw.
@@ -44,6 +45,17 @@ namespace Hooks
 			Journal::OnObjectivesPopulated(ctx);
 		}
 
+		// Enter on our HIDDEN QUESTS pseudo-entry must not reach the game: its formID is a sentinel.
+		void ToggleQuestActiveStatus_Hook(const RE::FxDelegateArgs& a_params)
+		{
+			if (a_params.GetArgCount() >= 1 && a_params[0].IsNumber() && a_params[0].GetNumber() == Journal::kHiddenViewFormID) {
+				return;
+			}
+			if (g_origToggleQuestActiveStatus) {
+				g_origToggleQuestActiveStatus(a_params);
+			}
+		}
+
 		class ProcessorWrapper : public RE::FxDelegateHandler::CallbackProcessor
 		{
 		public:
@@ -62,6 +74,10 @@ namespace Hooks
 					g_origRequestObjectivesData = a_method;
 					a_method = &RequestObjectivesData_Hook;
 					logger::debug("wrapped RequestObjectivesData");
+				} else if (name == "ToggleQuestActiveStatus"sv) {
+					g_origToggleQuestActiveStatus = a_method;
+					a_method = &ToggleQuestActiveStatus_Hook;
+					logger::debug("wrapped ToggleQuestActiveStatus");
 				}
 				_inner->Process(a_methodName, a_method);
 			}

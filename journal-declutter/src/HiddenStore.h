@@ -29,6 +29,7 @@ public:
 
 	[[nodiscard]] std::size_t QuestCount() const { return _quests.size(); }
 	[[nodiscard]] std::size_t MiscCount() const { return _misc.size(); }
+	[[nodiscard]] const std::unordered_set<Key>& MiscKeys() const { return _misc; }
 
 	// Session-only UI state: when true, hidden entries are listed with a prefix instead of removed.
 	bool showHidden{ false };

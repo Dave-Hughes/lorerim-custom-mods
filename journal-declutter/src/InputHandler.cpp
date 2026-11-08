@@ -92,7 +92,7 @@ void InputHandler::HandleKey(std::uint32_t a_code, bool a_shift)
 	}
 
 	Journal::Context ctx;
-	if (!Journal::GetContext(ctx, nullptr) || !Journal::IsQuestsTabActive(ctx)) {
+	if (!Journal::GetContext(ctx, nullptr) || !Journal::IsQuestsTabActive(ctx.movie)) {
 		return;
 	}
 

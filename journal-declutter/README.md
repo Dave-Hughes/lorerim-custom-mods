@@ -3,7 +3,8 @@
 Hide the quests you don't care about, straight from the journal. No plugin file, no MCM.
 
 Open the journal, highlight a quest, press **Delete**. It's gone from the list and its markers
-leave your compass and map. The quest itself keeps running underneath, exactly as before — if
+leave your compass and map. A **HIDDEN QUESTS** entry appears after your active quests; open it to
+see everything you've hidden, and press Delete on one of those to bring it back. The quest itself keeps running underneath, exactly as before — if
 you ever walk into its dungeon or talk to its NPC, it advances normally, and when it reaches a
 new objective it simply isn't shown. Nothing is cancelled or broken; you only control what the
 journal shows you.
@@ -15,12 +16,12 @@ from one DLL, through the Address Library.
 
 | Key | In the journal, quests tab |
 | --- | --- |
-| **Delete** | Hide the highlighted quest. On the *Miscellaneous* page with an objective highlighted, hide that objective. |
-| **Insert** | Show hidden entries in place, marked `[HIDDEN]`. Press Delete on one to bring it back. Insert again to tuck them away. |
+| **Delete** | Hide the highlighted quest. On the *Miscellaneous* page with an objective highlighted, hide that objective. On the *HIDDEN QUESTS* page, restore the highlighted entry. |
+| **H** | Show hidden quests in their normal place, marked `[HIDDEN]`; Delete on one restores it. H again to tuck them away. |
 | **Shift + Delete** | Restore every hidden quest and objective for this character. |
 
-Hover with the mouse or move with the arrow keys to highlight — the same highlight that
-*Toggle Active* and *Show on Map* use. Hidden quests are remembered per character in the SKSE
+The keys are also listed in the journal's bottom bar next to *Toggle Active* and *Show on Map*.
+Hover with the mouse or move with the arrow keys to highlight — the same highlight those two use. Hidden quests are remembered per character in the SKSE
 co-save (the `.skse` file next to your save), so they travel with the save and survive
 load-order changes.
 
