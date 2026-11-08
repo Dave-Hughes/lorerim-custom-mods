@@ -1,0 +1,15 @@
+# build output
+**/build/
+**/out/
+**/vcpkg_installed/
+**/.prebuilt/
+
+# IDE
+.vs/
+.vscode/
+.idea/
+*.user
+
+# packaging
+*.zip
+*.7z
