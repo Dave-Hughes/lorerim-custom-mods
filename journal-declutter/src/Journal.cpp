@@ -176,8 +176,9 @@ namespace Journal
 			}
 		}
 
-		// A hidden quest should not keep pointing at the compass either.
-		void Deactivate(RE::FormID a_formID)
+		// A hidden quest should not keep pointing at the compass either. The Flash entry carries
+		// its own copy of the active flag (it draws the marker icon), so keep that in step.
+		void Deactivate(GFxValue& a_entry, RE::FormID a_formID)
 		{
 			if (!Settings::bDeactivateHiddenQuests.GetValue() || a_formID == 0) {
 				return;
@@ -185,6 +186,28 @@ namespace Journal
 			if (const auto quest = RE::TESForm::LookupByID<RE::TESQuest>(a_formID)) {
 				quest->data.flags.reset(RE::QuestFlag::kActive);
 			}
+			if (IsObj(a_entry)) {
+				a_entry.SetMember("active", GFxValue(false));
+			}
+		}
+
+		// The centred list makes whatever sits at the scroll position the selection, and the
+		// game's own navigation never lands on the divider; neither should ours.
+		int SelectableIndex(GFxValue& a_entryList, int a_idx)
+		{
+			const auto size = static_cast<int>(a_entryList.GetArraySize());
+			if (size <= 0) {
+				return -1;
+			}
+			a_idx = std::clamp(a_idx, 0, size - 1);
+			GFxValue e;
+			if (!a_entryList.GetElement(static_cast<std::uint32_t>(a_idx), &e) || !IsObj(e) || !IsDivider(e)) {
+				return a_idx;
+			}
+			if (a_idx > 0) {
+				return a_idx - 1;
+			}
+			return size > 1 ? 1 : -1;
 		}
 
 		bool IsViewingMisc(Context& a_ctx)
@@ -207,7 +230,7 @@ namespace Journal
 			const auto size = a_entryList.GetArraySize();
 			for (std::uint32_t i = 0; i < size; ++i) {
 				GFxValue e;
-				if (!a_entryList.GetElement(i, &e)) {
+				if (!a_entryList.GetElement(i, &e) || !IsObj(e)) {
 					continue;
 				}
 				if (IsDivider(e)) {
@@ -263,12 +286,9 @@ namespace Journal
 		void RefreshTitles(Context& a_ctx, GFxValue& a_entryList, const std::optional<EntryKey>& a_selKey, int a_fallbackIdx)
 		{
 			a_ctx.titleList.Invoke("InvalidateData");
-			const auto size = static_cast<int>(a_entryList.GetArraySize());
-			if (size > 0) {
-				int idx = a_selKey ? FindIndex(a_entryList, *a_selKey) : -1;
-				if (idx < 0) {
-					idx = std::clamp(a_fallbackIdx, 0, size - 1);
-				}
+			int idx = a_selKey ? FindIndex(a_entryList, *a_selKey) : -1;
+			idx = SelectableIndex(a_entryList, idx < 0 ? a_fallbackIdx : idx);
+			if (idx >= 0) {
 				std::array<GFxValue, 2> args{ GFxValue(static_cast<double>(idx)), GFxValue(true) };
 				a_ctx.titleList.Invoke("RestoreScrollPosition", nullptr, args.data(), args.size());
 			}
@@ -288,7 +308,6 @@ namespace Journal
 		// for it again (through our hook) the next time it is highlighted.
 		void InvalidateMiscObjectives(Context& a_ctx, GFxValue& a_entryList)
 		{
-			GetOrCreateArray(a_ctx, kHiddenMiscVar, true);
 			const auto size = a_entryList.GetArraySize();
 			for (std::uint32_t i = 0; i < size; ++i) {
 				GFxValue e;
@@ -321,28 +340,48 @@ namespace Journal
 				return;
 			}
 
+			// One quest can list several objectives here; the game toggles them as a group
+			// (see QuestsPage.onToggleQuestActive), so hide and restore them as a group too.
+			const auto sameQuest = [&](const GFxValue& a_other) {
+				const auto k = KeyOf(a_other);
+				return k && k->formID == key->formID && k->instance == key->instance;
+			};
+
 			auto& store = HiddenStore::Get();
 			if (store.showHidden) {
-				if (store.IsMiscHidden(key->formID, key->instance)) {
+				const bool unhide = store.IsMiscHidden(key->formID, key->instance);
+				if (unhide) {
 					store.UnhideMisc(key->formID, key->instance);
-					StripPrefix(a_ctx, e);
-					Sound("UIQuestActive");
 				} else {
 					store.HideMisc(key->formID, key->instance);
-					SetPrefix(a_ctx, e);
-					Deactivate(key->formID);
-					Sound("UIQuestInactive");
+				}
+				const auto size = objList.GetArraySize();
+				for (std::uint32_t i = 0; i < size; ++i) {
+					GFxValue o;
+					if (!objList.GetElement(i, &o) || !sameQuest(o)) {
+						continue;
+					}
+					if (unhide) {
+						StripPrefix(a_ctx, o);
+					} else {
+						SetPrefix(a_ctx, o);
+						Deactivate(o, key->formID);
+					}
 				}
 				a_ctx.objectiveList.Invoke("InvalidateData");
 				a_ctx.objectiveList.Invoke("UpdateList");
+				Sound(unhide ? "UIQuestActive" : "UIQuestInactive");
 				return;
 			}
 
 			store.HideMisc(key->formID, key->instance);
-			Deactivate(key->formID);
-			auto parked = GetOrCreateArray(a_ctx, kHiddenMiscVar, false);
-			parked.PushBack(e);
-			objList.RemoveElements(static_cast<std::uint32_t>(a_idx), 1);
+			for (auto i = static_cast<int>(objList.GetArraySize()) - 1; i >= 0; --i) {
+				GFxValue o;
+				if (objList.GetElement(static_cast<std::uint32_t>(i), &o) && sameQuest(o)) {
+					Deactivate(o, key->formID);
+					objList.RemoveElements(static_cast<std::uint32_t>(i), 1);
+				}
+			}
 			RefreshObjectives(a_ctx, objList, a_idx);
 			Sound("UIQuestInactive");
 		}
@@ -418,9 +457,8 @@ namespace Journal
 			return;
 		}
 
-		// Fresh movie, fresh parking lots.
+		// Fresh movie, fresh parking lot.
 		auto parked = GetOrCreateArray(a_ctx, kHiddenTitlesVar, true);
-		GetOrCreateArray(a_ctx, kHiddenMiscVar, true);
 		a_ctx.page.DeleteMember(kDividerVar);
 
 		if (store.QuestCount() == 0) {
@@ -474,8 +512,6 @@ namespace Journal
 			return;
 		}
 
-		// The game built a brand-new array, so anything parked from the old one is stale.
-		auto parked = GetOrCreateArray(a_ctx, kHiddenMiscVar, true);
 		if (store.MiscCount() == 0) {
 			return;
 		}
@@ -493,7 +529,6 @@ namespace Journal
 			if (store.showHidden) {
 				SetPrefix(a_ctx, e);
 			} else {
-				parked.PushBack(e);
 				objectives.RemoveElements(static_cast<std::uint32_t>(i), 1);
 				++removed;
 			}
@@ -539,7 +574,7 @@ namespace Journal
 			} else {
 				store.Hide(key->formID, key->instance);
 				SetPrefix(a_ctx, e);
-				Deactivate(key->formID);
+				Deactivate(e, key->formID);
 				Sound("UIQuestInactive");
 			}
 			a_ctx.titleList.Invoke("InvalidateData");
@@ -549,7 +584,7 @@ namespace Journal
 		}
 
 		store.Hide(key->formID, key->instance);
-		Deactivate(key->formID);
+		Deactivate(e, key->formID);
 		auto parked = GetOrCreateArray(a_ctx, kHiddenTitlesVar, false);
 		parked.PushBack(e);
 		entryList.RemoveElements(static_cast<std::uint32_t>(idx), 1);

@@ -35,8 +35,10 @@ namespace Hooks
 			if (g_origRequestObjectivesData) {
 				g_origRequestObjectivesData(a_params);
 			}
+			const auto tab = static_cast<RE::Journal_QuestsTab*>(a_params.GetHandler());
+			const RE::GFxValue* hint = tab && tab->titleList.IsObject() ? &tab->titleList : nullptr;
 			Journal::Context ctx;
-			if (!Journal::GetContext(ctx, a_params.GetMovie())) {
+			if (!Journal::GetContext(ctx, a_params.GetMovie(), hint)) {
 				return;
 			}
 			Journal::OnObjectivesPopulated(ctx);

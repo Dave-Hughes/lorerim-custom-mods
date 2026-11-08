@@ -32,7 +32,7 @@ RE::BSEventNotifyControl InputHandler::ProcessEvent(RE::InputEvent* const* a_eve
 	}
 
 	const auto ui = RE::UI::GetSingleton();
-	if (!ui || !ui->IsMenuOpen(RE::JournalMenu::MENU_NAME)) {
+	if (!ui || !ui->IsMenuOpen(RE::JournalMenu::MENU_NAME) || ui->IsMenuOpen(RE::Console::MENU_NAME)) {
 		return RE::BSEventNotifyControl::kContinue;
 	}
 

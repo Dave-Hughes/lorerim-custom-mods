@@ -9,9 +9,10 @@
 //                   each objective belongs to a different quest and carries its formID.
 // The game fills TitleList.entryList inside the "RequestQuestsData" callback and the
 // highlighted quest's objectives inside "RequestObjectivesData". We run right after each
-// and remove hidden entries before the lists are drawn. Removed entries are parked in
-// arrays attached to the page object, so they live and die with the movie and can be
-// put back when the player wants to see or restore them.
+// and remove hidden entries before the lists are drawn. Removed quest entries are parked
+// in an array attached to the page object, so they live and die with the movie and can be
+// put back when the player wants to see or restore them. Misc objectives are simply
+// re-requested from the game, which rebuilds that list on demand.
 namespace Journal
 {
 	constexpr std::string_view kMenuRootPath = "_root.QuestJournalFader.Menu_mc";
@@ -20,7 +21,6 @@ namespace Journal
 
 	// Page-attached parking arrays (names chosen not to collide with anything in the SWF).
 	constexpr const char* kHiddenTitlesVar = "jdc_hiddenTitles";
-	constexpr const char* kHiddenMiscVar = "jdc_hiddenMisc";
 	constexpr const char* kDividerVar = "jdc_divider";
 
 	struct Context

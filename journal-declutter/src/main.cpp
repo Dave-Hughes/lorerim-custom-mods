@@ -18,14 +18,14 @@ namespace
 	}
 }
 
-SKSEPluginLoad(const SKSE::LoadInterface* a_skse)
+SKSE_PLUGIN_LOAD(const SKSE::LoadInterface* a_skse)
 {
 	SKSE::Init(a_skse, { .log = true });
 
-	const auto& module = REL::Module::get();
+	const auto& game = REL::Module::get();
 	logger::info("{} v{} loading on Skyrim {} ({})",
 		SKSE::GetPluginName(), SKSE::GetPluginVersion().string(),
-		module.version().string(), REL::Module::IsVR() ? "VR" : (REL::Module::IsAE() ? "AE" : "SE"));
+		game.version().string(), REL::Module::IsVR() ? "VR" : (REL::Module::IsAE() ? "AE" : "SE"));
 
 	Settings::Load();
 	HiddenStore::RegisterSerialization();
