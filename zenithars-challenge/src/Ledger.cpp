@@ -119,12 +119,6 @@ void Ledger::AddEarned(RE::FormID a_form, std::int32_t a_count)
 	GiveEarned(kPlayer, a_form, a_count);
 }
 
-void Ledger::Place(RE::FormID a_holder, RE::FormID a_form, std::int32_t a_count)
-{
-	std::scoped_lock lock(_lock);
-	GiveEarned(a_holder, a_form, a_count);
-}
-
 std::int32_t Ledger::Transfer(RE::FormID a_from, RE::FormID a_to, RE::FormID a_form, std::int32_t a_count)
 {
 	if (a_count <= 0) {

@@ -22,8 +22,8 @@ enum class Source : std::uint8_t
 // copies are followed as they move: pack -> chest -> pack, pack -> ground -> pack. A copy is
 // never earned by moving it; only making or gathering mints one.
 //
-// A "holder" is whoever has the copies: the player (0x14), a container or actor reference, or a
-// dropped item's own reference.
+// A "holder" is whoever has the copies: the player (0x14), a container or actor reference, or the
+// ground (one stand-in holder for everything the player has dropped).
 //
 // Which copies move when a mixed stack is split:
 //   - leaving the pack for a container or the ground: the not-yours copies go first, so a player
@@ -45,8 +45,6 @@ public:
 	void AddUnearned(RE::FormID a_form, std::int32_t a_count);
 	// n earned copies return to the pack without being made anew (an improved or enchanted item).
 	void AddEarned(RE::FormID a_form, std::int32_t a_count);
-	// n earned copies now sit with a holder (used when a dropped item's reference is known only a moment later).
-	void Place(RE::FormID a_holder, RE::FormID a_form, std::int32_t a_count);
 	// n copies moved between holders. Returns how many of them were earned.
 	std::int32_t Transfer(RE::FormID a_from, RE::FormID a_to, RE::FormID a_form, std::int32_t a_count);
 	// n copies left a holder and the world. Returns how many of them were earned.

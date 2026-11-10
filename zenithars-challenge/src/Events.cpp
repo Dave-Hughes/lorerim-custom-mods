@@ -9,6 +9,11 @@ namespace
 	constexpr RE::FormID kLockpick = 0x0000000A;
 	constexpr RE::FormID kFirewood = 0x0006F993;  // Skyrim.esm Firewood01
 
+	// The game does not say which reference a dropped item became, so earned copies lying on the
+	// ground are pooled per item under one stand-in holder. Picking the item up off the ground
+	// draws from the pool. The number of earned copies never grows this way.
+	constexpr RE::FormID kGround = 0xFFFFFFFF;
+
 	enum class Bench
 	{
 		kNone,     // no crafting menu open
@@ -44,22 +49,6 @@ namespace
 	std::mutex g_usedLock;
 	UsedUp     g_lastUsed;
 	constexpr auto kDoubleReportWindow = 150ms;
-
-	// A dropped item's reference is not ready at the moment the drop is reported. The earned
-	// copies are placed on it a frame or two later.
-	void PlaceOnDropped(RE::ObjectRefHandle a_handle, RE::FormID a_form, std::int32_t a_earned, int a_triesLeft)
-	{
-		SKSE::GetTaskInterface()->AddTask([a_handle, a_form, a_earned, a_triesLeft]() {
-			if (const auto ref = a_handle.get()) {
-				Ledger::Get().Place(ref->GetFormID(), a_form, a_earned);
-				logger::debug("dropped [{:08X}] is ref {:08X}: {} yours placed on it", a_form, ref->GetFormID(), a_earned);
-			} else if (a_triesLeft > 0) {
-				PlaceOnDropped(a_handle, a_form, a_earned, a_triesLeft - 1);
-			} else {
-				logger::warn("dropped [{:08X}]: its reference never appeared; {} earned copies lost", a_form, a_earned);
-			}
-		});
-	}
 
 	[[nodiscard]] RE::TESObjectREFRPtr OccupiedFurniture()
 	{
@@ -249,7 +238,7 @@ void Events::OnAddedToPack(const RE::TESContainerChangedEvent& a_event, RE::TESF
 
 	// Picked up off the ground.
 	if (const auto world = GetWorldRef(a_event); world.present) {
-		const auto earned = ledger.Transfer(world.id, Ledger::kPlayer, form, count);
+		const auto earned = ledger.Transfer(kGround, Ledger::kPlayer, form, count);
 		logger::debug("pack +{} {} [{:08X}] picked up (ref {:08X}): {} yours", count, ItemName(a_item), form, world.id, earned);
 		ShowNotYours(a_item, count - earned);
 		return;
@@ -266,7 +255,7 @@ void Events::OnAddedToPack(const RE::TESContainerChangedEvent& a_event, RE::TESF
 			}
 		}
 		if (pickedRef != 0) {
-			const auto earned = ledger.Transfer(pickedRef, Ledger::kPlayer, form, count);
+			const auto earned = ledger.Transfer(kGround, Ledger::kPlayer, form, count);
 			logger::debug("pack +{} {} [{:08X}] picked up (activated ref {:08X}): {} yours", count, ItemName(a_item), form, pickedRef, earned);
 			ShowNotYours(a_item, count - earned);
 			return;
@@ -327,11 +316,8 @@ void Events::OnLeftPack(const RE::TESContainerChangedEvent& a_event, RE::TESForm
 
 	// Dropped on the ground.
 	if (const auto world = GetWorldRef(a_event); world.present) {
-		const auto earned = ledger.Transfer(Ledger::kPlayer, world.id, form, count);
-		logger::debug("pack -{} {} [{:08X}] dropped (ref {:08X}): {} yours", count, ItemName(a_item), form, world.id, earned);
-		if (world.id == 0 && earned > 0) {
-			PlaceOnDropped(a_event.reference, form, earned, 5);
-		}
+		const auto earned = ledger.Transfer(Ledger::kPlayer, kGround, form, count);
+		logger::debug("pack -{} {} [{:08X}] dropped: {} yours", count, ItemName(a_item), form, earned);
 		return;
 	}
 
@@ -388,14 +374,9 @@ RE::BSEventNotifyControl Events::ProcessEvent(const RE::TESContainerChangedEvent
 		if (a_event->newContainer != 0) {
 			ledger.Transfer(a_event->oldContainer, a_event->newContainer, a_event->baseObj, a_event->itemCount);
 		} else if (const auto world = GetWorldRef(*a_event); world.present) {
-			ledger.Transfer(a_event->oldContainer, world.id, a_event->baseObj, a_event->itemCount);
+			ledger.Transfer(a_event->oldContainer, kGround, a_event->baseObj, a_event->itemCount);
 		} else {
 			ledger.Consume(a_event->oldContainer, a_event->baseObj, a_event->itemCount);
-		}
-	} else if (a_event->oldContainer == 0 && a_event->newContainer != 0) {
-		// A dropped item picked up by someone other than the player.
-		if (const auto world = GetWorldRef(*a_event); world.present && world.id != 0 && ledger.Tracks(world.id)) {
-			ledger.Transfer(world.id, a_event->newContainer, a_event->baseObj, a_event->itemCount);
 		}
 	}
 	return RE::BSEventNotifyControl::kContinue;
