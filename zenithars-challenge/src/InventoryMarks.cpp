@@ -58,6 +58,8 @@ namespace
 		a_view->CreateString(&markedValue, marked.c_str());
 		a_object->SetMember("text", markedValue);
 		a_object->SetMember("zenitharNotYours", RE::GFxValue(static_cast<double>(notYours)));
+		// Experiment: tint the row's own icon a dull red, the route LoreRim's icon-colour mod uses.
+		a_object->SetMember("iconColor", RE::GFxValue(static_cast<double>(0xB04A4A)));
 	}
 }
 

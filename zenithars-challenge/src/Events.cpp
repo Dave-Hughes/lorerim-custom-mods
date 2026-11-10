@@ -215,6 +215,7 @@ void Events::Register()
 		holder->AddEventSink<RE::TESDeathEvent>(GetSingleton());
 		holder->AddEventSink<RE::TESActivateEvent>(GetSingleton());
 		holder->AddEventSink<RE::TESEquipEvent>(GetSingleton());
+		holder->AddEventSink<RE::TESCellAttachDetachEvent>(GetSingleton());
 		if (const auto ui = RE::UI::GetSingleton()) {
 			ui->AddEventSink<RE::MenuOpenCloseEvent>(GetSingleton());
 		}
@@ -293,6 +294,78 @@ namespace
 				}
 			}
 		});
+	}
+}
+
+namespace
+{
+	// Septims the player was just paid in the barter menu, so a refused sale can hand them back.
+	struct GoldIn
+	{
+		std::int32_t      count{ 0 };
+		Clock::time_point when{};
+	};
+	std::mutex          g_goldLock;
+	std::vector<GoldIn> g_goldIn;
+	constexpr auto      kSaleWindow = 400ms;
+
+	void NoteGoldIn(std::int32_t a_count)
+	{
+		std::scoped_lock lock(g_goldLock);
+		const auto       now = Clock::now();
+		std::erase_if(g_goldIn, [now](const GoldIn& a_entry) { return now - a_entry.when > kSaleWindow; });
+		g_goldIn.push_back({ a_count, now });
+	}
+
+	[[nodiscard]] std::int32_t TakeRecentGold()
+	{
+		std::scoped_lock lock(g_goldLock);
+		const auto       now = Clock::now();
+		std::int32_t     total = 0;
+		for (const auto& entry : g_goldIn) {
+			if (now - entry.when <= kSaleWindow) {
+				total += entry.count;
+			}
+		}
+		g_goldIn.clear();
+		return total;
+	}
+
+	// Oath mode: a sale of something that was not the player's own is reversed. The item comes
+	// back and the septims paid for it go back to the merchant. Runs two frames later, so the
+	// payment has been reported by then whichever order the game reports them in.
+	void UndoSale(RE::FormID a_merchant, RE::FormID a_form, std::int32_t a_back, std::int32_t a_sold)
+	{
+		SKSE::GetTaskInterface()->AddTask([=]() {
+			SKSE::GetTaskInterface()->AddTask([=]() {
+				const auto player = RE::PlayerCharacter::GetSingleton();
+				const auto merchant = RE::TESForm::LookupByID<RE::TESObjectREFR>(a_merchant);
+				const auto object = RE::TESForm::LookupByID<RE::TESBoundObject>(a_form);
+				const auto gold = RE::TESForm::LookupByID<RE::TESBoundObject>(kGold);
+				if (!player || !merchant || !object) {
+					return;
+				}
+				const auto paid = TakeRecentGold();
+				const auto refund = a_sold > 0 ? static_cast<std::int32_t>(static_cast<std::int64_t>(paid) * a_back / a_sold) : 0;
+				merchant->RemoveItem(object, a_back, RE::ITEM_REMOVE_REASON::kStoreInContainer, nullptr, player);
+				if (refund > 0 && gold) {
+					player->RemoveItem(gold, refund, RE::ITEM_REMOVE_REASON::kStoreInContainer, nullptr, merchant);
+				}
+				RE::SendUIMessage::SendInventoryUpdateMessage(player, nullptr);
+				RE::SendUIMessage::SendInventoryUpdateMessage(merchant, nullptr);
+				logger::info("OATH refused: sale of {} x{} reversed, {} septims returned to the merchant", ItemName(object), a_back, refund);
+			});
+		});
+	}
+
+	// A missive board: the container the notes are taken from.
+	[[nodiscard]] bool IsMissiveBoard(RE::TESObjectREFR* a_ref)
+	{
+		const auto base = a_ref ? a_ref->GetBaseObject() : nullptr;
+		if (!base || !base->Is(RE::FormType::Container)) {
+			return false;
+		}
+		return ContainsNoCase(DefiningPlugin(base), "missive"sv) || ContainsNoCase(ItemName(base), "missive"sv);
 	}
 }
 
@@ -470,7 +543,12 @@ void Events::OnLeftPack(const RE::TESContainerChangedEvent& a_event, RE::TESForm
 		const auto earned = ledger.Transfer(Ledger::kPlayer, a_event.newContainer, form, count, selling);
 		logger::debug("pack -{} {} [{:08X}] to {:08X}{}: {} yours", count, ItemName(a_item), form, a_event.newContainer, selling ? " (sold)" : "", earned);
 		if (selling && Judging() && earned < count) {
-			Break(Rule::kSale, a_item, count - earned, std::format("{} x{} was not yours to sell.", ItemName(a_item), count - earned));
+			if (CurrentMode() == Mode::kOath) {
+				ShowLine(std::format("{} x{} was not yours to sell. Your oath holds.", ItemName(a_item), count - earned));
+				UndoSale(a_event.newContainer, form, count - earned, count);
+			} else {
+				Break(Rule::kSale, a_item, count - earned, std::format("{} x{} was not yours to sell.", ItemName(a_item), count - earned));
+			}
 		}
 		return;
 	}
@@ -523,7 +601,15 @@ RE::BSEventNotifyControl Events::ProcessEvent(const RE::TESContainerChangedEvent
 	if (!a_event || a_event->itemCount <= 0 || a_event->baseObj == 0 || a_event->oldContainer == a_event->newContainer) {
 		return RE::BSEventNotifyControl::kContinue;
 	}
-	if (a_event->baseObj == kGold || a_event->baseObj == kLockpick) {
+	if (a_event->baseObj == kGold) {
+		if (a_event->newContainer == Ledger::kPlayer) {
+			if (const auto ui = RE::UI::GetSingleton(); ui && ui->IsMenuOpen(RE::BarterMenu::MENU_NAME)) {
+				NoteGoldIn(a_event->itemCount);
+			}
+		}
+		return RE::BSEventNotifyControl::kContinue;
+	}
+	if (a_event->baseObj == kLockpick) {
 		return RE::BSEventNotifyControl::kContinue;
 	}
 
@@ -589,6 +675,19 @@ RE::BSEventNotifyControl Events::ProcessEvent(const RE::TESActivateEvent* a_even
 	}
 	const auto base = a_event->objectActivated->GetBaseObject();
 	if (!base) {
+		return RE::BSEventNotifyControl::kContinue;
+	}
+	if (Judging() && CurrentMode() == Mode::kOath && IsMissiveBoard(a_event->objectActivated.get())) {
+		// The Missives mod unblocks its board whenever it refreshes it, so the board is blocked
+		// again here and the list of notes is closed if it managed to open.
+		logger::info("OATH refused: missive board {:08X}", a_event->objectActivated->GetFormID());
+		ShowLine("Missives are not allowed. Your oath holds.");
+		a_event->objectActivated->SetActivationBlocked(true);
+		SKSE::GetTaskInterface()->AddTask([]() {
+			if (const auto queue = RE::UIMessageQueue::GetSingleton()) {
+				queue->AddMessage(RE::ContainerMenu::MENU_NAME, RE::UI_MESSAGE_TYPE::kHide, nullptr);
+			}
+		});
 		return RE::BSEventNotifyControl::kContinue;
 	}
 	std::scoped_lock lock(g_activatedLock);
@@ -693,6 +792,21 @@ RE::BSEventNotifyControl Events::ProcessEvent(const RE::MenuOpenCloseEvent* a_ev
 {
 	if (a_event && a_event->opening && a_event->menuName == RE::Console::MENU_NAME) {
 		Ledger::Get().NoteConsole();
+	}
+	return RE::BSEventNotifyControl::kContinue;
+}
+
+RE::BSEventNotifyControl Events::ProcessEvent(const RE::TESCellAttachDetachEvent* a_event, RE::BSTEventSource<RE::TESCellAttachDetachEvent>*)
+{
+	// Missive boards are blocked only while they are loaded and only under an oath, so nothing
+	// stays blocked in the save if the mod is removed.
+	if (!a_event || !a_event->reference || !IsMissiveBoard(a_event->reference.get())) {
+		return RE::BSEventNotifyControl::kContinue;
+	}
+	if (!a_event->attached) {
+		a_event->reference->SetActivationBlocked(false);
+	} else if (Judging() && CurrentMode() == Mode::kOath) {
+		a_event->reference->SetActivationBlocked(true);
 	}
 	return RE::BSEventNotifyControl::kContinue;
 }
