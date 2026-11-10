@@ -215,6 +215,31 @@ void Events::SetArmed(bool a_armed)
 	logger::debug("rules {}", a_armed ? "armed" : "disarmed");
 }
 
+void Events::TakeStock()
+{
+	const auto player = RE::PlayerCharacter::GetSingleton();
+	if (!player) {
+		return;
+	}
+	auto&        ledger = Ledger::Get();
+	std::int32_t items = 0;
+	std::int32_t added = 0;
+	std::int32_t removed = 0;
+	for (const auto& [object, data] : player->GetInventory()) {
+		if (!object || object->GetFormID() == kGold || object->GetFormID() == kLockpick) {
+			continue;
+		}
+		++items;
+		const auto change = ledger.ReconcilePack(object->GetFormID(), data.first);
+		if (change > 0) {
+			added += change;
+		} else {
+			removed -= change;
+		}
+	}
+	logger::info("took stock of {} kinds of item in the pack: {} unseen copies marked not yours, {} stale ones cleared", items, added, removed);
+}
+
 void Events::Reset()
 {
 	{

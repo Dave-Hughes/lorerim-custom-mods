@@ -71,6 +71,10 @@ public:
 	// Leaving the pack, the not-yours copies go first unless a_earnedFirst (used for sales, where the
 	// player is taken to be selling their own work first).
 	std::int32_t Transfer(RE::FormID a_from, RE::FormID a_to, RE::FormID a_form, std::int32_t a_count, bool a_earnedFirst = false);
+	// Brings the pack's counts for one item in line with what the pack really holds. Copies the
+	// ledger never saw arrive are not yours; copies that left unseen come off the not-yours count
+	// first, then the earned count. Returns the change in the not-yours count.
+	std::int32_t ReconcilePack(RE::FormID a_form, std::int32_t a_actual);
 	// n copies left a holder and the world. Returns how many of them were earned.
 	std::int32_t Consume(RE::FormID a_holder, RE::FormID a_form, std::int32_t a_count);
 

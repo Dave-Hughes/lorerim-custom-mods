@@ -31,6 +31,7 @@ namespace
 						if (turn != g_turn) {
 							return;  // another save was loaded meanwhile
 						}
+						Events::TakeStock();
 						Events::SetArmed(true);
 						if (loaded && Settings::bShowMadeMessages.GetValue()) {
 							const auto text = std::format("Zenithar's ledger is running: {} items made, {} rules broken",

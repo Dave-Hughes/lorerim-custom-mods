@@ -152,6 +152,35 @@ std::int32_t Ledger::Transfer(RE::FormID a_from, RE::FormID a_to, RE::FormID a_f
 	return earned;
 }
 
+std::int32_t Ledger::ReconcilePack(RE::FormID a_form, std::int32_t a_actual)
+{
+	std::scoped_lock lock(_lock);
+	std::int32_t     earned = 0;
+	if (const auto holder = _earned.find(kPlayer); holder != _earned.end()) {
+		if (const auto item = holder->second.find(a_form); item != holder->second.end()) {
+			earned = item->second;
+		}
+	}
+	std::int32_t unearned = 0;
+	if (const auto item = _unearned.find(a_form); item != _unearned.end()) {
+		unearned = item->second;
+	}
+	const auto actual = std::max(0, a_actual);
+	const auto tracked = earned + unearned;
+	if (actual > tracked) {
+		_unearned[a_form] = unearned + (actual - tracked);
+		return actual - tracked;
+	}
+	if (actual < tracked) {
+		auto       missing = tracked - actual;
+		const auto fromUnearned = TakeUnearned(a_form, missing);
+		missing -= fromUnearned;
+		TakeEarned(kPlayer, a_form, missing);
+		return -fromUnearned;
+	}
+	return 0;
+}
+
 std::int32_t Ledger::Consume(RE::FormID a_holder, RE::FormID a_form, std::int32_t a_count)
 {
 	if (a_count <= 0) {

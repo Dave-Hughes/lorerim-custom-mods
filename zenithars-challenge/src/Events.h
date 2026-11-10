@@ -19,6 +19,10 @@ public:
 	// on the character is not read as the player equipping it.
 	static void SetArmed(bool a_armed);
 
+	// Counts what is really in the pack and corrects the ledger: anything it never saw arrive is
+	// not yours. Run once the game has finished loading. Main thread only.
+	static void TakeStock();
+
 	RE::BSEventNotifyControl ProcessEvent(const RE::TESContainerChangedEvent* a_event, RE::BSTEventSource<RE::TESContainerChangedEvent>* a_source) override;
 	RE::BSEventNotifyControl ProcessEvent(const RE::TESDeathEvent* a_event, RE::BSTEventSource<RE::TESDeathEvent>* a_source) override;
 	RE::BSEventNotifyControl ProcessEvent(const RE::TESActivateEvent* a_event, RE::BSTEventSource<RE::TESActivateEvent>* a_source) override;
