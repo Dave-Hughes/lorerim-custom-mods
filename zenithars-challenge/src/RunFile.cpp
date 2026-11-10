@@ -93,6 +93,8 @@ namespace
 			return "missive"sv;
 		case Rule::kMaterial:
 			return "material"sv;
+		case Rule::kConsole:
+			return "console"sv;
 		default:
 			return "other"sv;
 		}

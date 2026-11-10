@@ -697,6 +697,12 @@ void Events::OnAddedToPack(const RE::TESContainerChangedEvent& a_event, RE::TESF
 	}
 
 	ledger.AddUnearned(form, count);
+	// Handed over while the console is open: a console command. The item is not yours like anything
+	// else from nowhere, and the run says so, since console materials could otherwise be crafted
+	// into gear that counts.
+	if (const auto ui = RE::UI::GetSingleton(); ui && ui->IsMenuOpen(RE::Console::MENU_NAME) && Judging()) {
+		Break(Rule::kConsole, a_item, count, std::format("{} x{} was added with the console.", ItemName(a_item), count));
+	}
 	const auto options = ledger.Options();
 	const auto now = Clock::now();
 

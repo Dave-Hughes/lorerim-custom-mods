@@ -25,6 +25,7 @@ enum class Rule : std::uint8_t
 	kMagic,      // equipped a spell, a scroll or a staff
 	kMissive,    // took a missive from a board
 	kMaterial,   // crafted with ore, firewood or hides the player did not gather
+	kConsole,    // added an item with the console
 
 	kTotal
 };
