@@ -12,9 +12,8 @@ A new character is asked once, when LoreRim's own setup is over: **Zenithar's Ch
 **Standard Playthrough**. The answer holds for the run.
 
 - Standard playthrough: the mod stands aside for that character. No messages, no marks, no run file.
-- The challenge: seven rules the challenge leaves to the player are chosen next (looted gems, looted
-  soul gems, coin purse gems, quest rewards, starting gear, starting clothes,
-  others' kills), and from then on the
+- The challenge: six rules the challenge leaves to the player are chosen next (looted gems, looted
+  soul gems, coin purse gems, quest rewards, starting gear, others' kills), and from then on the
   game refuses what the rules forbid.
 
 ## What counts as yours
@@ -29,8 +28,8 @@ A new character is asked once, when LoreRim's own setup is over: **Zenithar's Ch
 | Took hides, meat or parts from an animal you killed | hunted |
 
 Everything else that enters your pack is not yours, unless one of the six rules you allowed says
-it is. Two of them cover what a new character starts with: Starting Clothes (the clothing only)
-and Starting Gear (everything). With neither, nothing you start with counts.
+it is. The clothes a new character starts in are theirs either way; the weapons, armor, jewelry
+and other gear an alternate start hands over are not, unless Starting Gear was allowed.
 
 Skyrim merges looted and made copies of one item into a single stack, so the mod keeps
 counts rather than marking items. Your copies are followed into chests and back, onto the ground
