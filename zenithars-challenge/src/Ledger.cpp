@@ -11,6 +11,8 @@ namespace
 	constexpr std::uint32_t kRecordMode = 'MODE';
 	constexpr std::uint32_t kRecordRaceKills = 'KLRC';
 	constexpr std::uint32_t kRecordConsole = 'CNSL';
+	constexpr std::uint32_t kRecordOptions = 'OPTS';
+	constexpr std::uint32_t kRecordPending = 'PEND';
 	constexpr std::uint32_t kRecordVersion = 1;
 
 	constexpr std::size_t kMaxKills = 2048;
@@ -284,6 +286,39 @@ std::uint32_t Ledger::ViolationCount() const
 	return static_cast<std::uint32_t>(_violations.size());
 }
 
+std::uint32_t Ledger::Options() const
+{
+	std::scoped_lock lock(_lock);
+	return _options;
+}
+
+void Ledger::SetOptions(std::uint32_t a_options)
+{
+	std::scoped_lock lock(_lock);
+	_options = a_options;
+}
+
+bool Ledger::ChoicePending() const
+{
+	std::scoped_lock lock(_lock);
+	return _choicePending;
+}
+
+void Ledger::SetChoicePending(bool a_pending)
+{
+	std::scoped_lock lock(_lock);
+	_choicePending = a_pending;
+}
+
+void Ledger::EarnPack(RE::FormID a_form, std::int32_t a_actual)
+{
+	std::scoped_lock lock(_lock);
+	_unearned.erase(a_form);
+	if (a_actual > 0) {
+		_earned[kPlayer][a_form] = a_actual;
+	}
+}
+
 void Ledger::TallyKill(RE::FormID a_race)
 {
 	if (a_race == 0) {
@@ -304,6 +339,7 @@ Ledger::Snapshot Ledger::TakeSnapshot() const
 	std::scoped_lock lock(_lock);
 	Snapshot         snapshot;
 	snapshot.mode = _mode;
+	snapshot.options = _options;
 	snapshot.made.assign(_made.begin(), _made.end());
 	snapshot.violations = _violations;
 	snapshot.killsByRace.assign(_killsByRace.begin(), _killsByRace.end());
@@ -328,6 +364,8 @@ void Ledger::ClearLocked()
 	_mode = Mode::kUnset;
 	_killsByRace.clear();
 	_consoleOpened = 0;
+	_options = 0;
+	_choicePending = false;
 	_violations.clear();
 	_earned.clear();
 	_unearned.clear();
@@ -430,6 +468,14 @@ void Ledger::OnSave(SKSE::SerializationInterface* a_intfc)
 		logger::error("failed to open the mode record");
 	}
 
+	if (a_intfc->OpenRecord(kRecordOptions, kRecordVersion)) {
+		a_intfc->WriteRecordData(self._options);
+	}
+	if (a_intfc->OpenRecord(kRecordPending, kRecordVersion)) {
+		const std::uint32_t pending = self._choicePending ? 1 : 0;
+		a_intfc->WriteRecordData(pending);
+	}
+
 	if (a_intfc->OpenRecord(kRecordConsole, kRecordVersion)) {
 		a_intfc->WriteRecordData(self._consoleOpened);
 	}
@@ -472,6 +518,12 @@ void Ledger::OnLoad(SKSE::SerializationInterface* a_intfc)
 			// The value read as the count is the mode itself.
 			self._mode = count == static_cast<std::uint32_t>(Mode::kOath) ? Mode::kOath :
 						 count == static_cast<std::uint32_t>(Mode::kHonor) ? Mode::kHonor : Mode::kUnset;
+			break;
+		case kRecordOptions:
+			self._options = count;
+			break;
+		case kRecordPending:
+			self._choicePending = count != 0;
 			break;
 		case kRecordConsole:
 			// The value read as the count is the number itself.

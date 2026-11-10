@@ -55,6 +55,17 @@ namespace
 
 	std::atomic_bool g_armed{ false };
 
+	// Rules are judged once the game has settled after loading, and not before a new character
+	// has been asked for its mode (its starting gear is put on before that).
+	[[nodiscard]] bool Judging()
+	{
+		if (!g_armed) {
+			return false;
+		}
+		const auto& ledger = Ledger::Get();
+		return !(ledger.ChoicePending() && ledger.StoredMode() == Mode::kUnset);
+	}
+
 	// The same equip can be reported more than once; a repeat within this window is ignored.
 	struct Equipped
 	{
@@ -126,7 +137,8 @@ namespace
 		if (!actor || !actor->IsDead() || !IsHuntable(actor)) {
 			return false;
 		}
-		return Settings::bCountOthersKills.GetValue() || Ledger::Get().WasKilledByPlayer(a_container);
+		return Settings::bCountOthersKills.GetValue() || (Ledger::Get().Options() & Option::kOthersKills) != 0 ||
+			   Ledger::Get().WasKilledByPlayer(a_container);
 	}
 
 	void ShowMade(const RE::TESForm* a_item, std::int32_t a_count, Source a_source)
@@ -247,7 +259,7 @@ namespace
 	{
 		static bool thunk(RE::Actor* a_this, RE::AlchemyItem* a_potion, RE::ExtraDataList* a_extraList)
 		{
-			if (a_potion && g_armed && Events::CurrentMode() == Mode::kOath && MustBeOwn(a_potion) &&
+			if (a_potion && Judging() && Events::CurrentMode() == Mode::kOath && MustBeOwn(a_potion) &&
 				Ledger::Get().Earned(Ledger::kPlayer, a_potion->GetFormID()) <= 0) {
 				const auto name = ItemName(a_potion);
 				logger::info("OATH refused: {} [{:08X}] not consumed", name, a_potion->GetFormID());
@@ -293,6 +305,23 @@ void Events::InstallHooks()
 	REL::Relocation<std::uintptr_t> vtbl{ RE::VTABLE_PlayerCharacter[0] };
 	DrinkPotionHook::func = vtbl.write_vfunc(DrinkPotionHook::kIndex, DrinkPotionHook::thunk);
 	logger::info("food and potion hook installed");
+}
+
+void Events::KeepPack()
+{
+	const auto player = RE::PlayerCharacter::GetSingleton();
+	if (!player) {
+		return;
+	}
+	std::int32_t kinds = 0;
+	for (const auto& [object, data] : player->GetInventory()) {
+		if (!object || object->GetFormID() == kGold || object->GetFormID() == kLockpick) {
+			continue;
+		}
+		Ledger::Get().EarnPack(object->GetFormID(), data.first);
+		++kinds;
+	}
+	logger::info("starting items kept: {} kinds of item in the pack are now the player's own", kinds);
 }
 
 void Events::TakeStock()
@@ -346,7 +375,7 @@ void Events::OnAddedToPack(const RE::TESContainerChangedEvent& a_event, RE::TESF
 	const auto form = a_event.baseObj;
 	const auto count = a_event.itemCount;
 
-	if (g_armed && IsMissive(a_item)) {
+	if (Judging() && IsMissive(a_item)) {
 		Break(Rule::kMissive, a_item, count, "Missives are not allowed.");
 	}
 
@@ -440,7 +469,7 @@ void Events::OnLeftPack(const RE::TESContainerChangedEvent& a_event, RE::TESForm
 		const auto selling = ui && ui->IsMenuOpen(RE::BarterMenu::MENU_NAME);
 		const auto earned = ledger.Transfer(Ledger::kPlayer, a_event.newContainer, form, count, selling);
 		logger::debug("pack -{} {} [{:08X}] to {:08X}{}: {} yours", count, ItemName(a_item), form, a_event.newContainer, selling ? " (sold)" : "", earned);
-		if (selling && g_armed && earned < count) {
+		if (selling && Judging() && earned < count) {
 			Break(Rule::kSale, a_item, count - earned, std::format("{} x{} was not yours to sell.", ItemName(a_item), count - earned));
 		}
 		return;
@@ -472,7 +501,7 @@ void Events::OnLeftPack(const RE::TESContainerChangedEvent& a_event, RE::TESForm
 	}
 	logger::debug("pack -{} {} [{:08X}] used up: {} yours (uid {})", count, ItemName(a_item), form, earned, a_event.uniqueID);
 
-	if (!g_armed || earned >= count) {
+	if (!Judging() || earned >= count) {
 		return;
 	}
 	if (bench == Bench::kNone) {
@@ -569,7 +598,7 @@ RE::BSEventNotifyControl Events::ProcessEvent(const RE::TESActivateEvent* a_even
 
 RE::BSEventNotifyControl Events::ProcessEvent(const RE::TESEquipEvent* a_event, RE::BSTEventSource<RE::TESEquipEvent>*)
 {
-	if (!g_armed || !a_event || !a_event->equipped || !a_event->actor || !a_event->actor->IsPlayerRef()) {
+	if (!Judging() || !a_event || !a_event->equipped || !a_event->actor || !a_event->actor->IsPlayerRef()) {
 		return RE::BSEventNotifyControl::kContinue;
 	}
 	const auto form = a_event->baseObject;

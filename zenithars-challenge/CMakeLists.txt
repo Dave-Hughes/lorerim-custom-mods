@@ -31,6 +31,7 @@ endif()
 
 set(SOURCES
 	src/main.cpp
+	src/Choice.cpp
 	src/Events.cpp
 	src/InventoryMarks.cpp
 	src/Rules.cpp
@@ -40,6 +41,7 @@ set(SOURCES
 )
 set(HEADERS
 	src/PCH.h
+	src/Choice.h
 	src/Events.h
 	src/InventoryMarks.h
 	src/Rules.h

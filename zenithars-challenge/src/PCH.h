@@ -13,6 +13,7 @@
 #include <cstdint>
 #include <deque>
 #include <format>
+#include <functional>
 #include <mutex>
 #include <string>
 #include <string_view>

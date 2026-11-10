@@ -26,6 +26,9 @@ public:
 	// not yours. Run once the game has finished loading. Main thread only.
 	static void TakeStock();
 
+	// The "keep starting items" choice: everything in the pack right now becomes the player's own. Main thread only.
+	static void KeepPack();
+
 	// The mode in force: the ini override if set, else the character's own; unset counts as Honor.
 	[[nodiscard]] static Mode CurrentMode();
 	// Hooks that let Oath mode refuse food and potions before they are used.

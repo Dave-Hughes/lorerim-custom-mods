@@ -37,6 +37,17 @@ enum class Mode : std::uint8_t
 	kOath,       // breaking a rule is refused
 };
 
+// The rules the challenge leaves to the player, chosen with the mode. A set bit means "allowed".
+namespace Option
+{
+	inline constexpr std::uint32_t kLootGems = 1u << 0;
+	inline constexpr std::uint32_t kLootSoulGems = 1u << 1;
+	inline constexpr std::uint32_t kCoinPurseGems = 1u << 2;
+	inline constexpr std::uint32_t kQuestRewards = 1u << 3;
+	inline constexpr std::uint32_t kStartingItems = 1u << 4;
+	inline constexpr std::uint32_t kOthersKills = 1u << 5;
+}
+
 struct Violation
 {
 	Rule         rule{ Rule::kGear };
@@ -71,6 +82,7 @@ public:
 	struct Snapshot
 	{
 		Mode                                             mode{ Mode::kUnset };
+		std::uint32_t                                    options{ 0 };
 		std::vector<std::pair<RE::FormID, MadeCounts>>   made;
 		std::vector<Violation>                           violations;
 		std::vector<std::pair<RE::FormID, std::uint32_t>> killsByRace;
@@ -120,6 +132,13 @@ public:
 
 	[[nodiscard]] Mode StoredMode() const;
 	void               SetMode(Mode a_mode);
+	[[nodiscard]] std::uint32_t Options() const;
+	void                        SetOptions(std::uint32_t a_options);
+	// A new character has not been asked for its mode yet.
+	[[nodiscard]] bool ChoicePending() const;
+	void               SetChoicePending(bool a_pending);
+	// Everything the pack holds of this item becomes the player's own (the "keep starting items" choice).
+	void EarnPack(RE::FormID a_form, std::int32_t a_actual);
 
 	void Clear();
 
@@ -147,4 +166,6 @@ private:
 	Mode                                      _mode{ Mode::kUnset };
 	std::unordered_map<RE::FormID, std::uint32_t> _killsByRace;
 	std::uint32_t                             _consoleOpened{ 0 };
+	std::uint32_t                             _options{ 0 };
+	bool                                      _choicePending{ false };
 };

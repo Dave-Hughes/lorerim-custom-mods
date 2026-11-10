@@ -1,3 +1,4 @@
+#include "Choice.h"
 #include "Events.h"
 #include "InventoryMarks.h"
 #include "Ledger.h"
@@ -14,6 +15,7 @@ namespace
 		case SKSE::MessagingInterface::kDataLoaded:
 			Events::Register();
 			Events::InstallHooks();
+			Choice::Register();
 			break;
 		case SKSE::MessagingInterface::kSaveGame:
 			RunFile::Write();
@@ -28,6 +30,7 @@ namespace
 				Events::SetArmed(false);
 				const auto loaded = a_msg->type == SKSE::MessagingInterface::kPostLoadGame;
 				const auto turn = ++g_turn;
+				Choice::SetTurn(turn);
 				// The HUD is not up yet while the loading screen is closing, and the game is still
 				// dressing the character, so the rules and the hello line wait a few seconds.
 				std::thread([loaded, turn]() {
@@ -38,6 +41,11 @@ namespace
 						}
 						Events::TakeStock();
 						Events::SetArmed(true);
+						if (loaded) {
+							Choice::OnLoaded(turn);
+						} else {
+							Choice::OnNewGame(turn);
+						}
 						if (loaded && Settings::bShowMadeMessages.GetValue()) {
 							const auto text = std::format("Zenithar's Challenge ({}): {} items made, {} rules broken",
 								Events::CurrentMode() == Mode::kOath ? "Oath" : "Honor", Ledger::Get().TotalMade(), Ledger::Get().ViolationCount());
