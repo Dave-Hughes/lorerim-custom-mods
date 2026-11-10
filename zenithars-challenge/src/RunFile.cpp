@@ -116,14 +116,16 @@ namespace
 		a_count = 0;
 		std::string names;
 		if (const auto data = RE::TESDataHandler::GetSingleton()) {
-			for (const auto file : data->compiledFileCollection.files) {
-				if (file) {
+			const auto mods = data->GetLoadedMods();
+			for (std::uint32_t i = 0; mods && i < data->GetLoadedModCount(); ++i) {
+				if (const auto file = mods[i]) {
 					names.append(file->GetFilename()).push_back('\n');
 					++a_count;
 				}
 			}
-			for (const auto file : data->compiledFileCollection.smallFiles) {
-				if (file) {
+			const auto lightMods = data->GetLoadedLightMods();
+			for (std::uint32_t i = 0; lightMods && i < data->GetLoadedLightModCount(); ++i) {
+				if (const auto file = lightMods[i]) {
 					names.append(file->GetFilename()).push_back('\n');
 					++a_count;
 				}
