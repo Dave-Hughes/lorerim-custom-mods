@@ -15,8 +15,8 @@ namespace Settings
 			spdlog::flush_on(spdlog::level::debug);
 		}
 
-		logger::info("Settings: othersKills={} madeMessages={} notYoursMessages={} verbose={}",
-			bCountOthersKills.GetValue(), bShowMadeMessages.GetValue(), bShowNotYoursMessages.GetValue(),
-			bVerboseLog.GetValue());
+		logger::info("Settings: othersKills={} warnings={} madeMessages={} notYoursMessages={} verbose={} allowedPlugins=\"{}\"",
+			bCountOthersKills.GetValue(), bShowWarnings.GetValue(), bShowMadeMessages.GetValue(), bShowNotYoursMessages.GetValue(),
+			bVerboseLog.GetValue(), sAllowedPlugins.GetValue());
 	}
 }

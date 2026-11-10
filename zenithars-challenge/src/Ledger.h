@@ -15,6 +15,28 @@ enum class Source : std::uint8_t
 
 [[nodiscard]] std::string_view SourceVerb(Source a_source) noexcept;
 
+// Which rule of the challenge was broken.
+enum class Rule : std::uint8_t
+{
+	kGear = 0,   // equipped a weapon, armor or ammunition the player did not make
+	kFood,       // ate food the player did not cook
+	kPotion,     // drank or applied a potion or poison the player did not brew
+	kSale,       // sold something that was not the player's own
+	kMagic,      // equipped a spell, a scroll or a staff
+	kMissive,    // took a missive from a board
+	kMaterial,   // crafted with ore, firewood or hides the player did not gather
+
+	kTotal
+};
+
+struct Violation
+{
+	Rule         rule{ Rule::kGear };
+	RE::FormID   form{ 0 };
+	std::int32_t count{ 0 };
+	float        day{ 0.0F };  // in-game days passed when it happened
+};
+
 // The count of "yours" copies of every item, wherever they are.
 //
 // Skyrim merges looted and made copies of one item into a single stack, so the ledger keeps
@@ -46,7 +68,9 @@ public:
 	// n earned copies return to the pack without being made anew (an improved or enchanted item).
 	void AddEarned(RE::FormID a_form, std::int32_t a_count);
 	// n copies moved between holders. Returns how many of them were earned.
-	std::int32_t Transfer(RE::FormID a_from, RE::FormID a_to, RE::FormID a_form, std::int32_t a_count);
+	// Leaving the pack, the not-yours copies go first unless a_earnedFirst (used for sales, where the
+	// player is taken to be selling their own work first).
+	std::int32_t Transfer(RE::FormID a_from, RE::FormID a_to, RE::FormID a_form, std::int32_t a_count, bool a_earnedFirst = false);
 	// n copies left a holder and the world. Returns how many of them were earned.
 	std::int32_t Consume(RE::FormID a_holder, RE::FormID a_form, std::int32_t a_count);
 
@@ -59,6 +83,10 @@ public:
 	// Animals the player killed, so their hides and meat count as hunted.
 	void               NoteKill(RE::FormID a_actorRef);
 	[[nodiscard]] bool WasKilledByPlayer(RE::FormID a_actorRef) const;
+
+	// A rule was broken. Returns how many have been broken so far, this one included.
+	std::uint32_t               Break(Rule a_rule, RE::FormID a_form, std::int32_t a_count, float a_day);
+	[[nodiscard]] std::uint32_t ViolationCount() const;
 
 	void Clear();
 
@@ -84,4 +112,5 @@ private:
 	std::unordered_map<RE::FormID, MadeCounts> _made;     // item -> lifetime made, by source
 	std::deque<RE::FormID>                    _killOrder;
 	std::unordered_set<RE::FormID>            _kills;
+	std::vector<Violation>                    _violations;
 };

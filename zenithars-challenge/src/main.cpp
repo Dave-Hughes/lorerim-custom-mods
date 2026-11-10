@@ -4,24 +4,38 @@
 
 namespace
 {
+	std::atomic_uint32_t g_turn{ 0 };
+
 	void MessageHandler(SKSE::MessagingInterface::Message* a_msg)
 	{
 		switch (a_msg->type) {
 		case SKSE::MessagingInterface::kDataLoaded:
 			Events::Register();
 			break;
-		case SKSE::MessagingInterface::kNewGame:
-			Events::GetSingleton()->Reset();
+		case SKSE::MessagingInterface::kPreLoadGame:
+			Events::SetArmed(false);
 			break;
+		case SKSE::MessagingInterface::kNewGame:
 		case SKSE::MessagingInterface::kPostLoadGame:
-			Events::GetSingleton()->Reset();
-			if (Settings::bShowMadeMessages.GetValue()) {
-				// The HUD is not up yet while the loading screen is closing, so the line waits a few seconds.
-				std::thread([]() {
+			{
+				Events::GetSingleton()->Reset();
+				Events::SetArmed(false);
+				const auto loaded = a_msg->type == SKSE::MessagingInterface::kPostLoadGame;
+				const auto turn = ++g_turn;
+				// The HUD is not up yet while the loading screen is closing, and the game is still
+				// dressing the character, so the rules and the hello line wait a few seconds.
+				std::thread([loaded, turn]() {
 					std::this_thread::sleep_for(6s);
-					SKSE::GetTaskInterface()->AddTask([]() {
-						const auto text = std::format("Zenithar's ledger is running: {} items made so far", Ledger::Get().TotalMade());
-						RE::SendHUDMessage::ShowHUDMessage(text.c_str());
+					SKSE::GetTaskInterface()->AddTask([loaded, turn]() {
+						if (turn != g_turn) {
+							return;  // another save was loaded meanwhile
+						}
+						Events::SetArmed(true);
+						if (loaded && Settings::bShowMadeMessages.GetValue()) {
+							const auto text = std::format("Zenithar's ledger is running: {} items made, {} rules broken",
+								Ledger::Get().TotalMade(), Ledger::Get().ViolationCount());
+							RE::SendHUDMessage::ShowHUDMessage(text.c_str());
+						}
 					});
 				}).detach();
 			}

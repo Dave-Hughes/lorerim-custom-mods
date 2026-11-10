@@ -7,9 +7,13 @@ namespace Settings
 	// Rules
 	inline REX::INI::Bool bCountOthersKills{ "Rules", "bCountOthersKills", false };
 
-	// Messages (test build: both on)
+	// Items from these plugins may be eaten or drunk whoever made them (water, provisions). Separate names with |
+	inline REX::INI::Str sAllowedPlugins{ "Rules", "sAllowedPlugins", "Waterskin.esp|LoreRim Respawn Provision.esp" };
+
+	// Messages
+	inline REX::INI::Bool bShowWarnings{ "Messages", "bShowWarnings", true };
 	inline REX::INI::Bool bShowMadeMessages{ "Messages", "bShowMadeMessages", true };
-	inline REX::INI::Bool bShowNotYoursMessages{ "Messages", "bShowNotYoursMessages", true };
+	inline REX::INI::Bool bShowNotYoursMessages{ "Messages", "bShowNotYoursMessages", false };
 
 	// Debug
 	inline REX::INI::Bool bVerboseLog{ "Debug", "bVerboseLog", true };

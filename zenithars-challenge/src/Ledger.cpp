@@ -7,9 +7,11 @@ namespace
 	constexpr std::uint32_t kRecordUnearned = 'UNRN';
 	constexpr std::uint32_t kRecordMade = 'MADE';
 	constexpr std::uint32_t kRecordKills = 'KILL';
+	constexpr std::uint32_t kRecordViolations = 'VIOL';
 	constexpr std::uint32_t kRecordVersion = 1;
 
 	constexpr std::size_t kMaxKills = 2048;
+	constexpr std::size_t kMaxViolations = 10000;
 
 	// Maps a saved FormID onto the current load order. False if its plugin is gone.
 	bool Resolve(SKSE::SerializationInterface* a_intfc, std::uint32_t a_old, RE::FormID& a_new)
@@ -119,7 +121,7 @@ void Ledger::AddEarned(RE::FormID a_form, std::int32_t a_count)
 	GiveEarned(kPlayer, a_form, a_count);
 }
 
-std::int32_t Ledger::Transfer(RE::FormID a_from, RE::FormID a_to, RE::FormID a_form, std::int32_t a_count)
+std::int32_t Ledger::Transfer(RE::FormID a_from, RE::FormID a_to, RE::FormID a_form, std::int32_t a_count, bool a_earnedFirst)
 {
 	if (a_count <= 0) {
 		return 0;
@@ -127,7 +129,10 @@ std::int32_t Ledger::Transfer(RE::FormID a_from, RE::FormID a_to, RE::FormID a_f
 	std::scoped_lock lock(_lock);
 
 	std::int32_t earned = 0;
-	if (a_from == kPlayer) {
+	if (a_from == kPlayer && a_earnedFirst) {
+		earned = TakeEarned(kPlayer, a_form, a_count);
+		TakeUnearned(a_form, a_count - earned);
+	} else if (a_from == kPlayer) {
 		// Not-yours copies leave the pack first.
 		const auto unearned = TakeUnearned(a_form, a_count);
 		earned = TakeEarned(kPlayer, a_form, a_count - unearned);
@@ -232,8 +237,24 @@ bool Ledger::WasKilledByPlayer(RE::FormID a_actorRef) const
 	return _kills.contains(a_actorRef);
 }
 
+std::uint32_t Ledger::Break(Rule a_rule, RE::FormID a_form, std::int32_t a_count, float a_day)
+{
+	std::scoped_lock lock(_lock);
+	if (_violations.size() < kMaxViolations) {
+		_violations.push_back({ a_rule, a_form, a_count, a_day });
+	}
+	return static_cast<std::uint32_t>(_violations.size());
+}
+
+std::uint32_t Ledger::ViolationCount() const
+{
+	std::scoped_lock lock(_lock);
+	return static_cast<std::uint32_t>(_violations.size());
+}
+
 void Ledger::ClearLocked()
 {
+	_violations.clear();
 	_earned.clear();
 	_unearned.clear();
 	_made.clear();
@@ -314,8 +335,22 @@ void Ledger::OnSave(SKSE::SerializationInterface* a_intfc)
 		logger::error("failed to open the kills record");
 	}
 
-	logger::debug("saved: {} holders, {} not-yours items, {} made items, {} kills",
-		self._earned.size(), self._unearned.size(), self._made.size(), self._killOrder.size());
+	if (a_intfc->OpenRecord(kRecordViolations, kRecordVersion)) {
+		const auto count = static_cast<std::uint32_t>(self._violations.size());
+		a_intfc->WriteRecordData(count);
+		for (const auto& violation : self._violations) {
+			const auto rule = static_cast<std::uint8_t>(violation.rule);
+			a_intfc->WriteRecordData(rule);
+			a_intfc->WriteRecordData(violation.form);
+			a_intfc->WriteRecordData(violation.count);
+			a_intfc->WriteRecordData(violation.day);
+		}
+	} else {
+		logger::error("failed to open the violations record");
+	}
+
+	logger::debug("saved: {} holders, {} not-yours items, {} made items, {} kills, {} rules broken",
+		self._earned.size(), self._unearned.size(), self._made.size(), self._killOrder.size(), self._violations.size());
 }
 
 void Ledger::OnLoad(SKSE::SerializationInterface* a_intfc)
@@ -417,14 +452,30 @@ void Ledger::OnLoad(SKSE::SerializationInterface* a_intfc)
 				}
 			}
 			break;
+		case kRecordViolations:
+			for (std::uint32_t i = 0; i < count; ++i) {
+				std::uint8_t  rule = 0;
+				std::uint32_t oldForm = 0;
+				Violation     violation;
+				if (!a_intfc->ReadRecordData(rule) || !a_intfc->ReadRecordData(oldForm) || !a_intfc->ReadRecordData(violation.count) ||
+					!a_intfc->ReadRecordData(violation.day)) {
+					logger::warn("truncated violations record after {} of {} entries", i, count);
+					break;
+				}
+				violation.rule = rule < static_cast<std::uint8_t>(Rule::kTotal) ? static_cast<Rule>(rule) : Rule::kGear;
+				// A broken rule stays on the record even if the item's plugin is gone.
+				Resolve(a_intfc, oldForm, violation.form);
+				self._violations.push_back(violation);
+			}
+			break;
 		default:
 			logger::warn("unknown record type {:08X}; skipping", type);
 			break;
 		}
 	}
 
-	logger::info("loaded: {} holders, {} not-yours items, {} made items, {} kills",
-		self._earned.size(), self._unearned.size(), self._made.size(), self._killOrder.size());
+	logger::info("loaded: {} holders, {} not-yours items, {} made items, {} kills, {} rules broken",
+		self._earned.size(), self._unearned.size(), self._made.size(), self._killOrder.size(), self._violations.size());
 }
 
 void Ledger::OnRevert(SKSE::SerializationInterface*)
