@@ -11,6 +11,8 @@ namespace Stats
 		std::string_view stat;  // the game's name for it
 	};
 
+	// Also follows, once a second, how far the character has travelled and each time it goes down:
+	// the game keeps neither.
 	// Starts asking once a minute. Call once, when the game's data has loaded.
 	void Start();
 	// Ask now (main thread). Used just after a save has loaded.

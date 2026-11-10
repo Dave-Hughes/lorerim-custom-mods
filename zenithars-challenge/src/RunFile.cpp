@@ -200,6 +200,8 @@ namespace
 		body += std::format("\"kills\":[{}],", kills);
 
 		body += std::format("\"consoleOpened\":{},", snapshot.consoleOpened);
+		// Followed by the mod itself, since the game keeps neither. Distance is in game units (about 70 to a metre).
+		body += std::format("\"deaths\":{},\"distance\":{:.0f},", snapshot.deaths, snapshot.distance);
 
 		// The game's own totals for the character, as last answered (up to a minute old).
 		std::string stats;

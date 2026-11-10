@@ -13,6 +13,8 @@ namespace
 	constexpr std::uint32_t kRecordConsole = 'CNSL';
 	constexpr std::uint32_t kRecordOptions = 'OPTS';
 	constexpr std::uint32_t kRecordPending = 'PEND';
+	constexpr std::uint32_t kRecordDeaths = 'DTHS';
+	constexpr std::uint32_t kRecordDistance = 'DIST';  // stored in hundreds of game units
 	constexpr std::uint32_t kRecordVersion = 1;
 
 	constexpr std::size_t kMaxKills = 2048;
@@ -342,6 +344,18 @@ void Ledger::NoteConsole()
 	++_consoleOpened;
 }
 
+void Ledger::NoteDeath()
+{
+	std::scoped_lock lock(_lock);
+	++_deaths;
+}
+
+void Ledger::AddDistance(double a_units)
+{
+	std::scoped_lock lock(_lock);
+	_distance += a_units;
+}
+
 Ledger::Snapshot Ledger::TakeSnapshot() const
 {
 	std::scoped_lock lock(_lock);
@@ -352,6 +366,8 @@ Ledger::Snapshot Ledger::TakeSnapshot() const
 	snapshot.violations = _violations;
 	snapshot.killsByRace.assign(_killsByRace.begin(), _killsByRace.end());
 	snapshot.consoleOpened = _consoleOpened;
+	snapshot.deaths = _deaths;
+	snapshot.distance = _distance;
 	return snapshot;
 }
 
@@ -372,6 +388,8 @@ void Ledger::ClearLocked()
 	_mode = Mode::kUnset;
 	_killsByRace.clear();
 	_consoleOpened = 0;
+	_deaths = 0;
+	_distance = 0.0;
 	_options = 0;
 	_choicePending = false;
 	_violations.clear();
@@ -487,6 +505,12 @@ void Ledger::OnSave(SKSE::SerializationInterface* a_intfc)
 	if (a_intfc->OpenRecord(kRecordConsole, kRecordVersion)) {
 		a_intfc->WriteRecordData(self._consoleOpened);
 	}
+	if (a_intfc->OpenRecord(kRecordDeaths, kRecordVersion)) {
+		a_intfc->WriteRecordData(self._deaths);
+	}
+	if (a_intfc->OpenRecord(kRecordDistance, kRecordVersion)) {
+		a_intfc->WriteRecordData(static_cast<std::uint32_t>(std::min(self._distance / 100.0, 4.0e9)));
+	}
 
 	if (a_intfc->OpenRecord(kRecordRaceKills, kRecordVersion)) {
 		const auto count = static_cast<std::uint32_t>(self._killsByRace.size());
@@ -536,6 +560,12 @@ void Ledger::OnLoad(SKSE::SerializationInterface* a_intfc)
 		case kRecordConsole:
 			// The value read as the count is the number itself.
 			self._consoleOpened = count;
+			break;
+		case kRecordDeaths:
+			self._deaths = count;
+			break;
+		case kRecordDistance:
+			self._distance = static_cast<double>(count) * 100.0;
 			break;
 		case kRecordRaceKills:
 			for (std::uint32_t i = 0; i < count; ++i) {

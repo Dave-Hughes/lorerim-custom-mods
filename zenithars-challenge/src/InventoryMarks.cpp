@@ -239,6 +239,32 @@ namespace
 		}
 	};
 
+	// The keys and clicks that use an item reach the screen as AttemptEquip, which acts on the selected row.
+	class EquipHandler : public RE::GFxFunctionHandler
+	{
+	public:
+		void Call(Params& a_params) override
+		{
+			if (!a_params.thisPtr) {
+				return;
+			}
+			if (Events::OnChallenge()) {
+				RE::GFxValue lists;
+				RE::GFxValue list;
+				RE::GFxValue entry;
+				if (a_params.thisPtr->GetMember("inventoryLists", &lists) && lists.IsObject() && lists.GetMember("itemList", &list) && list.IsObject() &&
+					list.GetMember("selectedEntry", &entry) && entry.IsObject() && Flag(entry, "zenitharAll") && Number(entry, "formType") == kFormTypeAlchemy) {
+					RE::GFxValue name;
+					const auto   text = entry.GetMember("zenitharName", &name) && name.IsString() ? std::string(name.GetString()) : "That"s;
+					RE::SendHUDMessage::ShowHUDMessage(std::format("Zenithar: {} was not made by you.", text).c_str());
+					logger::info("refused at the inventory screen (use key): {}", text);
+					return;
+				}
+			}
+			a_params.thisPtr->Invoke("zenitharEquip", nullptr, a_params.args, a_params.argCount);
+		}
+	};
+
 	void WrapSelect(RE::GFxMovieView* a_view)
 	{
 		static const auto selectHandler = RE::make_gptr<SelectHandler>();
@@ -254,6 +280,14 @@ namespace
 		menu.SetMember("zenitharSelect", original);
 		a_view->CreateFunction(&wrapped, selectHandler.get());
 		menu.SetMember("onItemSelect", wrapped);
+		static const auto equipHandler = RE::make_gptr<EquipHandler>();
+		RE::GFxValue      attempt;
+		if (menu.GetMember("AttemptEquip", &attempt) && attempt.IsObject()) {
+			RE::GFxValue wrappedAttempt;
+			menu.SetMember("zenitharEquip", attempt);
+			a_view->CreateFunction(&wrappedAttempt, equipHandler.get());
+			menu.SetMember("AttemptEquip", wrappedAttempt);
+		}
 		menu.SetMember("zenitharSelectWrapped", RE::GFxValue(true));
 		logger::info("inventory screen wrapped to stop not-yours food and potions at the press");
 	}
@@ -339,31 +373,58 @@ namespace
 		}
 	};
 
-	void WrapLootRows()
+	// True once the quick-loot window's rows are wrapped (or were already).
+	[[nodiscard]] bool WrapLootRows(const std::string& a_menu, bool a_lastTry)
 	{
 		static const auto lootHandler = RE::make_gptr<LootRowHandler>();
 		const auto        ui = RE::UI::GetSingleton();
 		RE::GPtr<RE::GFxMovieView> view;
 		if (ui) {
-			view = ui->GetMovieView("LootMenu"sv);
+			view = ui->GetMovieView(a_menu);
 		}
 		if (!view) {
-			return;
+			if (a_lastTry) {
+				logger::warn("quick-loot window \"{}\": no movie to wrap", a_menu);
+			}
+			return false;
 		}
 		RE::GFxValue proto;
-		if (!view->GetVariable(&proto, "_global.QuickLoot.ListItemRenderer.prototype") || !proto.IsObject() || Flag(proto, "zenitharWrapped")) {
-			return;
+		if (!view->GetVariable(&proto, "_global.QuickLoot.ListItemRenderer.prototype") || !proto.IsObject()) {
+			if (a_lastTry) {
+				logger::warn("quick-loot window \"{}\": its row class was not found", a_menu);
+			}
+			return false;
+		}
+		if (Flag(proto, "zenitharWrapped")) {
+			return true;
 		}
 		RE::GFxValue original;
 		if (!proto.GetMember("setData", &original) || !original.IsObject()) {
-			return;
+			if (a_lastTry) {
+				logger::warn("quick-loot window \"{}\": its rows have no setData to wrap", a_menu);
+			}
+			return false;
 		}
 		RE::GFxValue wrapped;
 		proto.SetMember("zenitharSetData", original);
 		view->CreateFunction(&wrapped, lootHandler.get());
 		proto.SetMember("setData", wrapped);
 		proto.SetMember("zenitharWrapped", RE::GFxValue(true));
-		logger::info("quick-loot rows wrapped for the mark");
+		logger::info("quick-loot rows wrapped for the mark (\"{}\")", a_menu);
+		return true;
+	}
+
+	// The window loads its file a little after it opens, so this tries for a few seconds.
+	void WrapLootRowsSoon(std::string a_menu, int a_triesLeft)
+	{
+		std::thread([menu = std::move(a_menu), a_triesLeft]() mutable {
+			std::this_thread::sleep_for(150ms);
+			SKSE::GetTaskInterface()->AddTask([menu = std::move(menu), a_triesLeft]() mutable {
+				if (!WrapLootRows(menu, a_triesLeft <= 0) && a_triesLeft > 0) {
+					WrapLootRowsSoon(std::move(menu), a_triesLeft - 1);
+				}
+			});
+		}).detach();
 	}
 
 	// Wraps the list's two functions, once per screen. False when the screen's rows are not SkyUI's.
@@ -519,9 +580,12 @@ void InventoryMarks::OnDataLoaded()
 
 void InventoryMarks::OnMenuOpening(std::string_view a_menu)
 {
-	if (a_menu != "LootMenu"sv || !Settings::bMarkInventory.GetValue()) {
+	if (!Settings::bMarkInventory.GetValue() || !Rules::ContainsNoCase(a_menu, "lootmenu"sv)) {
 		return;
 	}
-	// The window's own script has run by the next frame.
-	SKSE::GetTaskInterface()->AddTask([]() { SKSE::GetTaskInterface()->AddTask([]() { WrapLootRows(); }); });
+	static std::atomic_bool told{ false };
+	if (!told.exchange(true)) {
+		logger::info("quick-loot window opening as \"{}\"", a_menu);
+	}
+	WrapLootRowsSoon(std::string(a_menu), 20);
 }

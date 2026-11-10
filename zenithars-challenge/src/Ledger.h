@@ -89,6 +89,8 @@ public:
 		std::vector<Violation>                           violations;
 		std::vector<std::pair<RE::FormID, std::uint32_t>> killsByRace;
 		std::uint32_t                                    consoleOpened{ 0 };
+		std::uint32_t                                    deaths{ 0 };
+		double                                           distance{ 0.0 };  // game units walked, ridden or swum
 	};
 
 	static constexpr RE::FormID kPlayer = 0x14;
@@ -130,6 +132,10 @@ public:
 	void TallyKill(RE::FormID a_race);
 	// The console was opened.
 	void NoteConsole();
+	// The player went down (died, or was dropped and brought back by a respawn mod).
+	void NoteDeath();
+	// The player covered this many game units on foot, on horseback or swimming.
+	void AddDistance(double a_units);
 	[[nodiscard]] Snapshot TakeSnapshot() const;
 
 	[[nodiscard]] Mode StoredMode() const;
@@ -170,6 +176,8 @@ private:
 	Mode                                      _mode{ Mode::kUnset };
 	std::unordered_map<RE::FormID, std::uint32_t> _killsByRace;
 	std::uint32_t                             _consoleOpened{ 0 };
+	std::uint32_t                             _deaths{ 0 };
+	double                                    _distance{ 0.0 };
 	std::uint32_t                             _options{ 0 };
 	bool                                      _choicePending{ false };
 };

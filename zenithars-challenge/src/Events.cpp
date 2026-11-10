@@ -535,6 +535,11 @@ void Events::OnAddedToPack(const RE::TESContainerChangedEvent& a_event, RE::TESF
 			return;
 		}
 		auto earned = ledger.Transfer(a_event.oldContainer, Ledger::kPlayer, form, count);
+		if (earned < count && a_item->Is(RE::FormType::Ammo)) {
+			// Arrows pulled out of a body: the player's own shot arrows come back as their own.
+			const auto back = ledger.Consume(kGround, form, count - earned);
+			earned += ledger.Promote(form, back);
+		}
 		if (earned < count && LootAllowed(a_item)) {
 			// A rule the player chose to allow: looted or bought gems or soul gems count as their own.
 			ledger.EarnPack(form, ledger.Earned(Ledger::kPlayer, form) + ledger.UnearnedInPack(form));
@@ -676,6 +681,13 @@ void Events::OnLeftPack(const RE::TESContainerChangedEvent& a_event, RE::TESForm
 	if (bench == Bench::kNone && a_item->Is(RE::FormType::AlchemyItem) && Judging() && MustBeOwn(a_item) &&
 		ledger.Earned(Ledger::kPlayer, form) <= 0) {
 		logger::debug("pack -{} {} [{:08X}] reported used, about to be refused: not counted", count, ItemName(a_item), form);
+		return;
+	}
+	if (bench == Bench::kNone && a_item->Is(RE::FormType::Ammo)) {
+		// An arrow shot. It is not gone: it lies in the world or sticks in a body, and it is still the
+		// player's own when picked back up. Shot arrows are kept with the things dropped on the ground.
+		const auto own = ledger.Transfer(Ledger::kPlayer, kGround, form, count, true);
+		logger::debug("pack -{} {} [{:08X}] shot: {} yours", count, ItemName(a_item), form, own);
 		return;
 	}
 	const auto earned = ledger.Consume(Ledger::kPlayer, form, count);

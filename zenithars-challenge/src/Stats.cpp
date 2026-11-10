@@ -1,6 +1,7 @@
 #include "Stats.h"
 
 #include "Events.h"
+#include "Ledger.h"
 
 namespace
 {
@@ -86,15 +87,72 @@ void Stats::Refresh()
 	}
 }
 
+namespace
+{
+	// Where the character was a second ago, and whether it was on its feet. Main thread only.
+	struct Step
+	{
+		bool         known{ false };
+		RE::NiPoint3 at{};
+		RE::FormID   space{ 0 };  // the worldspace, or the interior cell
+		bool         down{ false };
+	};
+	Step g_step;
+
+	// Further than this in one second is a door, a cart or fast travel, not travel on foot or horse.
+	constexpr float kMaxStep = 2500.0F;
+
+	void Walk()
+	{
+		const auto player = RE::PlayerCharacter::GetSingleton();
+		const auto ui = RE::UI::GetSingleton();
+		if (!player || !ui || !player->Is3DLoaded() || !Events::OnChallenge()) {
+			g_step.known = false;
+			return;
+		}
+
+		// Going down: dead, dying, or dropped (LoreRim's respawn mod drops the character and brings it back).
+		const auto state = player->AsActorState();
+		const auto life = state ? state->GetLifeState() : RE::ACTOR_LIFE_STATE::kAlive;
+		const auto down = life == RE::ACTOR_LIFE_STATE::kDying || life == RE::ACTOR_LIFE_STATE::kDead || life == RE::ACTOR_LIFE_STATE::kEssentialDown ||
+						  life == RE::ACTOR_LIFE_STATE::kBleedout;
+		if (down && !g_step.down) {
+			Ledger::Get().NoteDeath();
+			logger::info("the character went down (life state {})", static_cast<int>(life));
+		}
+		g_step.down = down;
+
+		if (ui->GameIsPaused()) {
+			return;
+		}
+		const auto world = player->GetWorldspace();
+		const auto cell = player->GetParentCell();
+		const auto space = world ? world->GetFormID() : (cell ? cell->GetFormID() : 0);
+		const auto at = player->GetPosition();
+		if (g_step.known && space == g_step.space) {
+			const auto moved = at.GetDistance(g_step.at);
+			if (moved > 1.0F && moved <= kMaxStep) {
+				Ledger::Get().AddDistance(moved);
+			}
+		}
+		g_step.known = true;
+		g_step.at = at;
+		g_step.space = space;
+	}
+}
+
 void Stats::Start()
 {
 	if (g_started.exchange(true)) {
 		return;
 	}
 	std::thread([]() {
-		for (;;) {
-			std::this_thread::sleep_for(60s);
-			SKSE::GetTaskInterface()->AddTask([]() { Stats::Refresh(); });
+		for (int second = 1;; ++second) {
+			std::this_thread::sleep_for(1s);
+			SKSE::GetTaskInterface()->AddTask([]() { Walk(); });
+			if (second % 60 == 0) {
+				SKSE::GetTaskInterface()->AddTask([]() { Stats::Refresh(); });
+			}
 		}
 	}).detach();
 }
@@ -102,6 +160,7 @@ void Stats::Start()
 void Stats::Clear()
 {
 	++g_generation;
+	SKSE::GetTaskInterface()->AddTask([]() { g_step = {}; });
 	std::scoped_lock lock(g_lock);
 	g_values.fill(kUnknown);
 }
