@@ -208,6 +208,56 @@ namespace
 		logger::info("item card wrapped for the not-yours line");
 	}
 
+	// ---- using a not-yours potion or food from the inventory ----
+	// The refusal itself happens deep in the game, after LoreRim's potion animation mod has already
+	// started the drinking animation. From the inventory screen the press can be stopped at the
+	// screen instead, before anything starts: the screen's onItemSelect is wrapped, and a press on
+	// food or a potion that is wholly not yours goes no further. (A hotkey or the wheel still goes
+	// the long way round: the animation plays and the drink is refused at the end of it.)
+	constexpr auto kFormTypeAlchemy = 46.0;
+
+	class SelectHandler : public RE::GFxFunctionHandler
+	{
+	public:
+		void Call(Params& a_params) override
+		{
+			if (!a_params.thisPtr) {
+				return;
+			}
+			if (a_params.argCount >= 1 && a_params.args[0].IsObject() && Events::OnChallenge()) {
+				RE::GFxValue entry;
+				if (a_params.args[0].GetMember("entry", &entry) && entry.IsObject() && Flag(entry, "zenitharAll") &&
+					Number(entry, "formType") == kFormTypeAlchemy) {
+					RE::GFxValue name;
+					const auto   text = entry.GetMember("zenitharName", &name) && name.IsString() ? std::string(name.GetString()) : "That"s;
+					RE::SendHUDMessage::ShowHUDMessage(std::format("Zenithar: {} was not made by you.", text).c_str());
+					logger::info("refused at the inventory screen: {}", text);
+					return;
+				}
+			}
+			a_params.thisPtr->Invoke("zenitharSelect", nullptr, a_params.args, a_params.argCount);
+		}
+	};
+
+	void WrapSelect(RE::GFxMovieView* a_view)
+	{
+		static const auto selectHandler = RE::make_gptr<SelectHandler>();
+		RE::GFxValue      menu;
+		if (!a_view->GetVariable(&menu, "_root.Menu_mc") || !menu.IsObject() || Flag(menu, "zenitharSelectWrapped")) {
+			return;
+		}
+		RE::GFxValue original;
+		if (!menu.GetMember("onItemSelect", &original) || !original.IsObject()) {
+			return;
+		}
+		RE::GFxValue wrapped;
+		menu.SetMember("zenitharSelect", original);
+		a_view->CreateFunction(&wrapped, selectHandler.get());
+		menu.SetMember("onItemSelect", wrapped);
+		menu.SetMember("zenitharSelectWrapped", RE::GFxValue(true));
+		logger::info("inventory screen wrapped to stop not-yours food and potions at the press");
+	}
+
 	// ---- the quick-loot window (QuickLoot IE) ----
 	// Its rows are its own (QuickLoot.ListItemRenderer) and carry only a name and a count, so the
 	// item is found by its name in whatever the crosshair is on.
@@ -317,7 +367,7 @@ namespace
 	}
 
 	// Wraps the list's two functions, once per screen. False when the screen's rows are not SkyUI's.
-	[[nodiscard]] bool WrapRows(RE::GFxMovieView* a_view)
+	[[nodiscard]] bool WrapRows(RE::GFxMovieView* a_view, bool a_ownScreen)
 	{
 		static const auto nameHandler = RE::make_gptr<NameHandler>();
 		static const auto colourHandler = RE::make_gptr<ColourHandler>();
@@ -327,6 +377,9 @@ namespace
 			return false;
 		}
 		WrapCard(a_view);
+		if (a_ownScreen) {
+			WrapSelect(a_view);
+		}
 		if (Flag(proto, "zenitharWrapped")) {
 			return true;
 		}
@@ -422,7 +475,12 @@ namespace
 		// What the wrapped row functions read: how many copies are not yours, and whether that is all of them.
 		a_object->SetMember("zenitharNotYours", RE::GFxValue(static_cast<double>(notYours)));
 		a_object->SetMember("zenitharAll", RE::GFxValue(notYours >= count));
-		if (Settings::bMarkWithIcon.GetValue() && !WrapRows(a_view) && notYours >= count) {
+		{
+			RE::GFxValue plainName;
+			a_view->CreateString(&plainName, Rules::ItemName(item).c_str());
+			a_object->SetMember("zenitharName", plainName);
+		}
+		if (Settings::bMarkWithIcon.GetValue() && !WrapRows(a_view, ownScreen) && notYours >= count) {
 			// Not a SkyUI-style list: fall back on the screen's own stolen icon and colour.
 			a_object->SetMember("isStealing", RE::GFxValue(true));
 		}
