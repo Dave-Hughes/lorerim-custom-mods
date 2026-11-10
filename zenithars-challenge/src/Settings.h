@@ -20,8 +20,11 @@ namespace Settings
 	inline REX::INI::Bool bShowWarnings{ "Messages", "bShowWarnings", true };
 	inline REX::INI::Bool bShowMadeMessages{ "Messages", "bShowMadeMessages", true };
 	inline REX::INI::Bool bShowNotYoursMessages{ "Messages", "bShowNotYoursMessages", false };
-	// Experiment: tag rows in the inventory screen that hold items which are not yours.
+	// Mark rows in the inventory and barter screens that hold items which are not yours.
 	inline REX::INI::Bool bMarkInventory{ "Messages", "bMarkInventory", true };
+	// How: the screen's stolen icon and colour, and/or the words "[not yours]" after the name.
+	inline REX::INI::Bool bMarkWithIcon{ "Messages", "bMarkWithIcon", true };
+	inline REX::INI::Bool bMarkWithText{ "Messages", "bMarkWithText", false };
 
 	// Debug
 	inline REX::INI::Bool bVerboseLog{ "Debug", "bVerboseLog", true };

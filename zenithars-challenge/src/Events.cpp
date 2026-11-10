@@ -11,6 +11,9 @@ namespace
 	constexpr RE::FormID kGold = 0x0000000F;
 	constexpr RE::FormID kLockpick = 0x0000000A;
 	constexpr RE::FormID kUnarmed = 0x000001F4;   // Skyrim.esm Unarmed (fists)
+	constexpr RE::FormID kDummyWeapon = 0x00020163;    // Skyrim.esm hidden dummy weapon, used to empty a hand
+	constexpr RE::FormID kRightHandSlot = 0x00013F42;  // Skyrim.esm RightHand equip slot
+	constexpr RE::FormID kLeftHandSlot = 0x00013F43;   // Skyrim.esm LeftHand equip slot
 
 	// The game does not say which reference a dropped item became, so earned copies lying on the
 	// ground are pooled per item under one stand-in holder. Picking the item up off the ground
@@ -275,23 +278,74 @@ namespace
 		static constexpr std::size_t                   kIndex = 0x10F;
 	};
 
-	// Oath mode: takes back off what the player just put on.
+	[[nodiscard]] bool IsForbiddenMagic(const RE::TESForm* a_form)
+	{
+		if (!a_form) {
+			return false;
+		}
+		if (a_form->Is(RE::FormType::Scroll)) {
+			return true;
+		}
+		if (const auto spell = a_form->As<RE::SpellItem>()) {
+			return spell->GetSpellType() == RE::MagicSystem::SpellType::kSpell;
+		}
+		if (const auto weapon = a_form->As<RE::TESObjectWEAP>()) {
+			return weapon->IsStaff();
+		}
+		return false;
+	}
+
+	// Oath mode: empties any hand that holds a spell, a scroll or a staff. A spell has no "unequip"
+	// of its own, so the hand is cleared the way hotkey mods do it: a hidden dummy weapon is put in
+	// the hand and taken straight back out. Main thread only.
+	void ClearMagicHandsNow()
+	{
+		const auto player = RE::PlayerCharacter::GetSingleton();
+		const auto manager = RE::ActorEquipManager::GetSingleton();
+		if (!player || !manager) {
+			return;
+		}
+		const auto dummy = RE::TESForm::LookupByID<RE::TESObjectWEAP>(kDummyWeapon);
+		for (const bool left : { true, false }) {
+			const auto held = player->GetEquippedObject(left);
+			if (!IsForbiddenMagic(held)) {
+				continue;
+			}
+			const auto slot = RE::TESForm::LookupByID<RE::BGSEquipSlot>(left ? kLeftHandSlot : kRightHandSlot);
+			logger::info("OATH: {} hand cleared of {} [{:08X}]", left ? "left" : "right", held->GetName(), held->GetFormID());
+			if (const auto spell = held->As<RE::SpellItem>(); spell && !held->Is(RE::FormType::Scroll)) {
+				player->DeselectSpell(spell);
+			}
+			if (dummy && slot) {
+				manager->EquipObject(player, dummy, nullptr, 1, slot, false, true, false, true);
+				manager->UnequipObject(player, dummy, nullptr, 1, slot, false, true, false, true);
+			} else if (const auto object = held->As<RE::TESBoundObject>()) {
+				manager->UnequipObject(player, object, nullptr, 1, slot, false, true, false, true);
+			}
+		}
+	}
+
+	// Now, and once more a frame later: the game finishes an equip after reporting it, and a second
+	// click on the same spell can land in between.
+	void ClearMagicHands()
+	{
+		SKSE::GetTaskInterface()->AddTask([]() {
+			ClearMagicHandsNow();
+			SKSE::GetTaskInterface()->AddTask([]() { ClearMagicHandsNow(); });
+		});
+	}
+
+	// Oath mode: takes back off the gear the player just put on.
 	void TakeOff(RE::FormID a_form)
 	{
 		SKSE::GetTaskInterface()->AddTask([a_form]() {
 			const auto player = RE::PlayerCharacter::GetSingleton();
-			const auto item = RE::TESForm::LookupByID(a_form);
-			if (!player || !item) {
+			const auto object = RE::TESForm::LookupByID<RE::TESBoundObject>(a_form);
+			if (!player || !object) {
 				return;
 			}
-			if (const auto spell = item->As<RE::SpellItem>(); spell && !item->Is(RE::FormType::Scroll)) {
-				player->DeselectSpell(spell);
-				return;
-			}
-			if (const auto object = item->As<RE::TESBoundObject>()) {
-				if (const auto manager = RE::ActorEquipManager::GetSingleton()) {
-					manager->UnequipObject(player, object, nullptr, 1, nullptr, true, false, false, true);
-				}
+			if (const auto manager = RE::ActorEquipManager::GetSingleton()) {
+				manager->UnequipObject(player, object, nullptr, 1, nullptr, true, false, false, true);
 			}
 		});
 	}
@@ -572,6 +626,13 @@ void Events::OnLeftPack(const RE::TESContainerChangedEvent& a_event, RE::TESForm
 		g_lastUsed = { form, count, now };
 	}
 	const auto bench = CurrentBench();
+	// Oath: the game reports food and potions as used up a moment before it asks to use them, and
+	// the refusal comes at that second step. Nothing was eaten, so nothing is counted or recorded.
+	if (bench == Bench::kNone && a_item->Is(RE::FormType::AlchemyItem) && Judging() && CurrentMode() == Mode::kOath && MustBeOwn(a_item) &&
+		ledger.Earned(Ledger::kPlayer, form) <= 0) {
+		logger::debug("pack -{} {} [{:08X}] reported used, about to be refused: not counted", count, ItemName(a_item), form);
+		return;
+	}
 	const auto earned = ledger.Consume(Ledger::kPlayer, form, count);
 	if (earned > 0 && bench == Bench::kImprove) {
 		std::scoped_lock lock(g_benchLock);
@@ -701,7 +762,7 @@ RE::BSEventNotifyControl Events::ProcessEvent(const RE::TESEquipEvent* a_event, 
 		return RE::BSEventNotifyControl::kContinue;
 	}
 	const auto form = a_event->baseObject;
-	if (form == 0 || form == kUnarmed) {
+	if (form == 0 || form == kUnarmed || form == kDummyWeapon) {
 		return RE::BSEventNotifyControl::kContinue;
 	}
 	const auto item = RE::TESForm::LookupByID(form);
@@ -718,10 +779,11 @@ RE::BSEventNotifyControl Events::ProcessEvent(const RE::TESEquipEvent* a_event, 
 		kMagic
 	};
 	auto kind = Kind::kNone;
-	if (const auto weapon = item->As<RE::TESObjectWEAP>()) {
-		if (weapon->IsStaff()) {
-			kind = Kind::kMagic;
-		} else if (!IsTool(item)) {
+	if (IsForbiddenMagic(item)) {
+		// Asked first: a scroll is a spell underneath, and a staff is a weapon.
+		kind = Kind::kMagic;
+	} else if (item->Is(RE::FormType::Weapon)) {
+		if (!IsTool(item)) {
 			kind = Kind::kGear;
 		}
 	} else if (const auto armor = item->As<RE::TESObjectARMO>()) {
@@ -731,15 +793,15 @@ RE::BSEventNotifyControl Events::ProcessEvent(const RE::TESEquipEvent* a_event, 
 		}
 	} else if (item->Is(RE::FormType::Ammo)) {
 		kind = Kind::kGear;
-	} else if (const auto spell = item->As<RE::SpellItem>()) {
-		if (spell->GetSpellType() == RE::MagicSystem::SpellType::kSpell) {
-			kind = Kind::kMagic;
-		}
-	} else if (item->Is(RE::FormType::Scroll)) {
-		kind = Kind::kMagic;
 	}
 	if (kind == Kind::kNone) {
 		return RE::BSEventNotifyControl::kContinue;
+	}
+
+	const auto oath = CurrentMode() == Mode::kOath;
+	if (oath && kind == Kind::kMagic) {
+		// Every time, even for a repeat: the second click on a spell is what used to stick.
+		ClearMagicHands();
 	}
 
 	{
@@ -751,13 +813,10 @@ RE::BSEventNotifyControl Events::ProcessEvent(const RE::TESEquipEvent* a_event, 
 		g_lastEquip = { form, now };
 	}
 
-	const auto oath = CurrentMode() == Mode::kOath;
-
 	if (kind == Kind::kMagic) {
 		if (oath) {
 			logger::info("OATH refused: {} [{:08X}] (magic) taken off", name, form);
 			ShowLine(std::format("{} is magic. Only enchanting is allowed. Your oath holds.", name));
-			TakeOff(form);
 		} else {
 			Break(Rule::kMagic, item, 1, std::format("{} is magic. Only enchanting is allowed.", name));
 		}
@@ -792,6 +851,11 @@ RE::BSEventNotifyControl Events::ProcessEvent(const RE::MenuOpenCloseEvent* a_ev
 {
 	if (a_event && a_event->opening && a_event->menuName == RE::Console::MENU_NAME) {
 		Ledger::Get().NoteConsole();
+	}
+	// Oath: whatever was done in a menu, no hand leaves it holding magic.
+	if (a_event && !a_event->opening && Judging() && CurrentMode() == Mode::kOath &&
+		(a_event->menuName == RE::InventoryMenu::MENU_NAME || a_event->menuName == RE::MagicMenu::MENU_NAME || a_event->menuName == RE::FavoritesMenu::MENU_NAME)) {
+		ClearMagicHands();
 	}
 	return RE::BSEventNotifyControl::kContinue;
 }
