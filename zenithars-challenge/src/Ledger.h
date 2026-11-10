@@ -49,6 +49,7 @@ namespace Option
 	inline constexpr std::uint32_t kQuestRewards = 1u << 3;
 	inline constexpr std::uint32_t kStartingItems = 1u << 4;
 	inline constexpr std::uint32_t kOthersKills = 1u << 5;
+	inline constexpr std::uint32_t kStartingClothes = 1u << 6;
 }
 
 struct Violation

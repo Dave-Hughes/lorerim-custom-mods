@@ -177,9 +177,8 @@ namespace
 		Events::TakeStock();
 		if ((a_options & Option::kStartingItems) != 0) {
 			Events::KeepPack();
-		} else if (a_mode == Mode::kOath) {
-			// Nobody has to walk into Skyrim naked: the clothes on the character's back are theirs.
-			// A start's weapons, armor, jewelry and other gear are not.
+		} else if (a_mode == Mode::kOath && (a_options & Option::kStartingClothes) != 0) {
+			// The clothes only. A start's weapons, armor, jewelry and other gear are not the player's own.
 			Events::KeepStartingClothes();
 		}
 		Status::Sync();
@@ -197,13 +196,14 @@ namespace
 			{ "Looted Soul Gems", "Ticked: empty soul gems you take from chests, bodies and shops count as yours.\n\nUnticked: only soul gems you craft count.", Picture("LootedSoulGems"sv) },
 			{ "Coin Purse Gems", "Ticked: gems that come out of coin purses count as yours.\n\nUnticked: they do not, so toss them.", Picture("CoinPurseGems"sv) },
 			{ "Quest Rewards", "Ticked: items handed to you as quest rewards count as yours.\n\nUnticked: only the septims do.", Picture("QuestRewards"sv) },
-			{ "Starting Items", "Ticked: everything you are carrying right now counts as yours.\n\nUnticked: only the clothes you start in count. Your start's weapons, armor and other gear do not.", Picture("StartingItems"sv) },
+			{ "Starting Gear", "Ticked: everything you are carrying right now counts as yours.\n\nUnticked: your start's weapons, armor and other gear do not count, so leave them behind.", Picture("StartingItems"sv) },
 			{ "Others' Kills", "Ticked: hides and meat from any dead animal count as hunted.\n\nUnticked: only animals you killed yourself count.", Picture("OthersKills"sv) },
+			{ "Starting Clothes", "Ticked: the clothes you are carrying right now count as yours. Not jewelry, armor or weapons.\n\nUnticked: they do not, so you start with nothing to wear until you make it.", Picture("StartingClothes"sv) },
 		};
-		OpenWindow(std::move(cards), 6, 0, [a_mode](std::vector<int> a_picked) {
+		OpenWindow(std::move(cards), 7, 0, [a_mode](std::vector<int> a_picked) {
 			std::uint32_t options = 0;
 			for (const auto index : a_picked) {
-				if (index >= 0 && index < 6) {
+				if (index >= 0 && index < 7) {
 					options |= 1u << index;
 				}
 			}
