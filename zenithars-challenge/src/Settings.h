@@ -7,6 +7,9 @@ namespace Settings
 	// Rules
 	inline REX::INI::Bool bCountOthersKills{ "Rules", "bCountOthersKills", false };
 
+	// Clothing, jewelry, cloaks and bags must be the player's own too, not only armor.
+	inline REX::INI::Bool bRestrictClothing{ "Rules", "bRestrictClothing", true };
+
 	// Items from these plugins may be eaten or drunk whoever made them (water, provisions). Separate names with |
 	inline REX::INI::Str sAllowedPlugins{ "Rules", "sAllowedPlugins", "Waterskin.esp|LoreRim Respawn Provision.esp" };
 

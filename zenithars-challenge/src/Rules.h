@@ -22,8 +22,12 @@ namespace Rules
 	// Raw materials the player must gather: ore and ingots, firewood, hides and leather.
 	[[nodiscard]] bool IsGatheredMaterial(const RE::TESForm* a_item);
 
-	// Weapons (not staves, not tools), light and heavy armor, shields and ammunition: must be made by the player to be worn.
+	[[nodiscard]] bool IsGem(const RE::TESForm* a_item);
+	[[nodiscard]] bool IsSoulGem(const RE::TESForm* a_item);
+
+	// Weapons (not staves, not tools), anything worn (armor, shields, clothing, jewelry, cloaks, bags) and
+	// ammunition: must be made by the player to be used. bRestrictClothing=0 narrows "worn" to light and heavy armor.
 	[[nodiscard]] bool MustBeOwnGear(const RE::TESForm* a_item);
-	// Anything that must be the player's own to use: gear, food, potions and gathered materials.
+	// Anything that must be the player's own: gear, food, potions, gathered materials, gems and soul gems.
 	[[nodiscard]] bool MustBeOwn(const RE::TESForm* a_item);
 }

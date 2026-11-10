@@ -115,6 +115,13 @@ namespace
 							 HasKeyword(a_item, "VendorItemOreIngot"sv));
 	}
 
+	// The up-to-you rules that let a looted item count as the player's own.
+	[[nodiscard]] bool LootAllowed(const RE::TESForm* a_item)
+	{
+		const auto options = Ledger::Get().Options();
+		return (IsGem(a_item) && (options & Option::kLootGems) != 0) || (IsSoulGem(a_item) && (options & Option::kLootSoulGems) != 0);
+	}
+
 	[[nodiscard]] Source MadeSource(RE::TESForm* a_item)
 	{
 		if (const auto alch = a_item ? a_item->As<RE::AlchemyItem>() : nullptr) {
@@ -509,7 +516,12 @@ void Events::OnAddedToPack(const RE::TESContainerChangedEvent& a_event, RE::TESF
 			Mint(a_item, count, Source::kHunted);
 			return;
 		}
-		const auto earned = ledger.Transfer(a_event.oldContainer, Ledger::kPlayer, form, count);
+		auto earned = ledger.Transfer(a_event.oldContainer, Ledger::kPlayer, form, count);
+		if (earned < count && LootAllowed(a_item)) {
+			// A rule the player chose to allow: looted or bought gems or soul gems count as their own.
+			ledger.EarnPack(form, ledger.Earned(Ledger::kPlayer, form) + ledger.UnearnedInPack(form));
+			earned = count;
+		}
 		logger::debug("pack +{} {} [{:08X}] from {:08X}: {} yours", count, ItemName(a_item), form, a_event.oldContainer, earned);
 		ShowNotYours(a_item, count - earned);
 		return;
@@ -774,16 +786,7 @@ RE::BSEventNotifyControl Events::ProcessEvent(const RE::TESEquipEvent* a_event, 
 	if (IsForbiddenMagic(item)) {
 		// Asked first: a scroll is a spell underneath, and a staff is a weapon.
 		kind = Kind::kMagic;
-	} else if (item->Is(RE::FormType::Weapon)) {
-		if (!IsTool(item)) {
-			kind = Kind::kGear;
-		}
-	} else if (const auto armor = item->As<RE::TESObjectARMO>()) {
-		// Clothing and jewelry are left alone for now; armor and shields must be the player's own.
-		if (armor->IsLightArmor() || armor->IsHeavyArmor()) {
-			kind = Kind::kGear;
-		}
-	} else if (item->Is(RE::FormType::Ammo)) {
+	} else if (MustBeOwnGear(item)) {
 		kind = Kind::kGear;
 	}
 	if (kind == Kind::kNone) {

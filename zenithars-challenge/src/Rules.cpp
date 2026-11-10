@@ -15,6 +15,16 @@ namespace Rules
 		return HasKeyword(a_item, "VendorItemOreIngot"sv) || HasKeyword(a_item, "VendorItemGem"sv);
 	}
 
+	bool IsGem(const RE::TESForm* a_item)
+	{
+		return HasKeyword(a_item, "VendorItemGem"sv);
+	}
+
+	bool IsSoulGem(const RE::TESForm* a_item)
+	{
+		return a_item && a_item->Is(RE::FormType::SoulGem);
+	}
+
 	bool IsGear(const RE::TESForm* a_item)
 	{
 		return a_item && (a_item->Is(RE::FormType::Weapon) || a_item->Is(RE::FormType::Armor) || a_item->Is(RE::FormType::Ammo));
@@ -103,7 +113,12 @@ namespace Rules
 			return !weapon->IsStaff() && !IsTool(a_item);
 		}
 		if (const auto armor = a_item->As<RE::TESObjectARMO>()) {
-			return armor->IsLightArmor() || armor->IsHeavyArmor();
+			if (armor->IsLightArmor() || armor->IsHeavyArmor()) {
+				return true;
+			}
+			// Clothing, jewelry, cloaks and bags. Hidden pieces that mods put on the character are
+			// flagged non-playable (record flag 0x4) and are left alone.
+			return Settings::bRestrictClothing.GetValue() && (a_item->GetFormFlags() & 0x4) == 0;
 		}
 		return a_item->Is(RE::FormType::Ammo);
 	}
@@ -116,6 +131,6 @@ namespace Rules
 		if (a_item->Is(RE::FormType::AlchemyItem)) {
 			return !IsFromAllowedPlugin(a_item);
 		}
-		return MustBeOwnGear(a_item) || IsGatheredMaterial(a_item);
+		return MustBeOwnGear(a_item) || IsGatheredMaterial(a_item) || IsGem(a_item) || IsSoulGem(a_item);
 	}
 }

@@ -12,21 +12,6 @@ namespace
 	std::atomic_int  g_logged{ 0 };
 	std::atomic_int  g_loggedOther{ 0 };
 
-	[[nodiscard]] bool IsPlayersEntry(const RE::InventoryEntryData* a_entry)
-	{
-		const auto player = RE::PlayerCharacter::GetSingleton();
-		const auto changes = player ? player->GetInventoryChanges() : nullptr;
-		if (!changes || !changes->entryList) {
-			return false;
-		}
-		for (const auto entry : *changes->entryList) {
-			if (entry == a_entry) {
-				return true;
-			}
-		}
-		return false;
-	}
-
 	// Called by SKSE for every row the game builds for an item list.
 	void OnInventoryEntry(RE::GFxMovieView* a_view, RE::GFxValue* a_object, RE::InventoryEntryData* a_item)
 	{
@@ -48,14 +33,22 @@ namespace
 			return;
 		}
 		const auto ownScreen = Rules::ContainsNoCase(url, "inventorymenu"sv);
-		if (!ownScreen && g_loggedOther < kMaxLogged) {
-			++g_loggedOther;
-			logger::debug("row on \"{}\": item [{:08X}] is {} the player's pack", url, a_item->object ? a_item->object->GetFormID() : 0, IsPlayersEntry(a_item) ? "in" : "not in");
-		}
-		// A merchant's screen lists both sides. A row is the player's when its entry is one of the
-		// entries in the player's own pack.
-		if (!ownScreen && !(Rules::ContainsNoCase(url, "bartermenu"sv) && IsPlayersEntry(a_item))) {
-			return;
+		// A merchant's or a chest's screen lists both sides. The game puts the two sides in different
+		// bits of the row's filterFlag: the low ten are the player's side.
+		if (!ownScreen) {
+			if (!Rules::ContainsNoCase(url, "bartermenu"sv) && !Rules::ContainsNoCase(url, "containermenu"sv)) {
+				return;
+			}
+			RE::GFxValue flag;
+			const auto   hasFlag = a_object->GetMember("filterFlag", &flag) && flag.IsNumber();
+			const auto   bits = hasFlag ? static_cast<std::uint32_t>(flag.GetNumber()) : 0u;
+			if (g_loggedOther < kMaxLogged) {
+				++g_loggedOther;
+				logger::debug("row on \"{}\": item [{:08X}] filterFlag {:#x}", url, a_item->object ? a_item->object->GetFormID() : 0, bits);
+			}
+			if ((bits & 0x3FFu) == 0) {
+				return;
+			}
 		}
 		const RE::TESBoundObject* item = a_item->object;  // not GetObject(): windows.h defines that name as a macro
 		if (!item || !Rules::MustBeOwn(item)) {
