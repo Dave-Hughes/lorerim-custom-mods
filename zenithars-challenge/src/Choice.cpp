@@ -157,6 +157,19 @@ namespace
 		});
 	}
 
+	// Runs a_next once the card window and any message box have been closed for three seconds running.
+	void WhenQuiet(std::function<void()> a_next, int a_quietChecks = 0)
+	{
+		After(500ms, [next = std::move(a_next), a_quietChecks]() mutable {
+			const auto busy = MenuOpen(kMenu) || MenuOpen(RE::MessageBoxMenu::MENU_NAME);
+			if (busy || a_quietChecks < 6) {
+				WhenQuiet(std::move(next), busy ? 0 : a_quietChecks + 1);
+				return;
+			}
+			next();
+		});
+	}
+
 	void OpenWindow(std::vector<Card> a_cards, int a_max, int a_min, Done a_done)
 	{
 		g_done = std::move(a_done);
@@ -208,32 +221,54 @@ namespace
 		RE::SendHUDMessage::ShowHUDMessage(a_mode == Mode::kOath ? "Zenithar's Challenge: your oath is sworn." : "Zenithar's Challenge is off for this character.");
 	}
 
-	// One window asks everything: the first card takes the challenge, the six under it are the
-	// rules the challenge leaves to the player. Confirming with the first card unticked is a
-	// standard playthrough.
-	void AskMode()
+	// Second step: the six rules the challenge leaves to the player, as cards. Each card is a
+	// permission, worded the same way: tick to allow it.
+	void AskOptions()
 	{
-		std::vector<Card> cards{
-			{ "Zenithar's Challenge", "Tick this to take the challenge: craft everything you use, and the game holds you to it.\n\nGear, food and potions you did not make cannot be used. Spells, scrolls and staves cannot be used. What is not yours cannot be sold.\n\nLeave it unticked for a standard playthrough. Either way, this cannot be changed later.\n\nThe cards below are rules the challenge leaves up to you. Tick one to allow it.", Picture("Challenge"sv) },
-			{ "Looted Gems", "Ticked: gems you take from chests, bodies and shops count as yours.\n\nUnticked: only gems that drop when you mine a vein count.", Picture("LootedGems"sv) },
-			{ "Looted Soul Gems", "Ticked: empty soul gems you take from chests, bodies and shops count as yours.\n\nUnticked: only soul gems you craft count.", Picture("LootedSoulGems"sv) },
-			{ "Coin Purse Gems", "Ticked: gems that come out of coin purses count as yours.\n\nUnticked: they do not, so toss them.", Picture("CoinPurseGems"sv) },
-			{ "Quest Rewards", "Ticked: items handed to you as quest rewards count as yours.\n\nUnticked: only the septims do.", Picture("QuestRewards"sv) },
-			{ "Starting Gear", "Ticked: the weapons, armor, jewelry and other gear your start handed you count as yours.\n\nUnticked: they do not, so leave them behind.\n\nThe clothes you start in, and the food you have or pick up before you leave this room, are yours either way.", Picture("StartingItems"sv) },
-			{ "Others' Kills", "Ticked: hides and meat from any dead animal count as hunted.\n\nUnticked: only animals you killed yourself count.", Picture("OthersKills"sv) },
+		const auto card = [](const char* a_title, const char* a_allowed, const char* a_not, std::string_view a_picture) {
+			return Card{ a_title, std::format("Tick this card to allow it.\n\nAllowed: {}\n\nNot allowed: {}", a_allowed, a_not), Picture(a_picture) };
 		};
-		OpenWindow(std::move(cards), 7, 0, [](std::vector<int> a_picked) {
-			auto          challenge = false;
+		std::vector<Card> cards{
+			card("Allow looted gems", "gems you take from chests, bodies and shops are yours to use and sell.", "only gems you mine yourself are yours.", "LootedGems"sv),
+			card("Allow looted soul gems", "soul gems you take from chests, bodies and shops are yours.", "only soul gems you make yourself are yours.", "LootedSoulGems"sv),
+			card("Allow coin purse gems", "a gem that comes out of a coin purse is yours.", "it is not. Toss it.", "CoinPurseGems"sv),
+			card("Allow quest rewards", "an item handed to you as a quest reward is yours.", "only the septims are.", "QuestRewards"sv),
+			card("Allow starting gear", "the weapons, armor, jewelry and other gear your start gave you are yours.", "they are not. Leave them behind. Your clothes and your first food are yours either way.", "StartingItems"sv),
+			card("Allow others' kills", "hides and meat from any dead animal count as hunted.", "only animals you killed yourself count.", "OthersKills"sv),
+		};
+		OpenWindow(std::move(cards), 6, 0, [](std::vector<int> a_picked) {
 			std::uint32_t options = 0;
 			for (const auto index : a_picked) {
-				if (index == 0) {
-					challenge = true;
-				} else if (index >= 1 && index <= 6) {
-					options |= 1u << (index - 1);
+				if (index >= 0 && index < 6) {
+					options |= 1u << index;
 				}
 			}
-			Finish(challenge ? Mode::kOath : Mode::kOff, challenge ? options : 0);
+			Finish(Mode::kOath, options);
 		});
+	}
+
+	// The answer to the first box. The game calls this with the number of the button pressed.
+	void OnIntroButton(std::uint8_t a_button)
+	{
+		logger::info("the first box was answered with button {}", a_button);
+		SKSE::GetTaskInterface()->AddTask([a_button]() {
+			if (a_button == 0) {
+				AskOptions();
+			} else {
+				Finish(Mode::kOff, 0);
+			}
+		});
+	}
+
+	// First step: an ordinary message box that says what the challenge is and what comes next.
+	void AskMode()
+	{
+		RE::MessageBoxMenu::Create(
+			"Zenithar's Challenge\n\n"
+			"Craft everything you use. Gear, food and potions you did not make cannot be used, and what is not yours cannot be sold. No spells, scrolls or staves.\n\n"
+			"If you take it, you next choose which of six optional rules to allow. Allowing none is the challenge as written; each one you allow makes it a little easier.\n\n"
+			"This cannot be changed later.",
+			&OnIntroButton, 0, 4, 10, "Take the challenge", "Standard playthrough");
 	}
 
 	void Begin()
@@ -251,7 +286,7 @@ namespace
 			return;
 		}
 		logger::info("asking the character whether it takes the challenge");
-		AskMode();
+		WhenQuiet([]() { AskMode(); });
 	}
 
 	// LoreRim's character setup ends by giving the player this spell for a short while.
