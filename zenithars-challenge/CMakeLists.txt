@@ -38,6 +38,7 @@ set(SOURCES
 	src/RunFile.cpp
 	src/Ledger.cpp
 	src/Settings.cpp
+	src/Stats.cpp
 )
 set(HEADERS
 	src/PCH.h

@@ -4,6 +4,7 @@
 #include "Ledger.h"
 #include "RunFile.h"
 #include "Settings.h"
+#include "Stats.h"
 
 namespace
 {
@@ -16,18 +17,21 @@ namespace
 			Events::Register();
 			Events::InstallHooks();
 			Choice::Register();
+			Stats::Start();
 			break;
 		case SKSE::MessagingInterface::kSaveGame:
 			RunFile::Write();
 			break;
 		case SKSE::MessagingInterface::kPreLoadGame:
 			Events::SetArmed(false);
+			Stats::Clear();
 			break;
 		case SKSE::MessagingInterface::kNewGame:
 		case SKSE::MessagingInterface::kPostLoadGame:
 			{
 				Events::GetSingleton()->Reset();
 				Events::SetArmed(false);
+				Stats::Clear();
 				const auto loaded = a_msg->type == SKSE::MessagingInterface::kPostLoadGame;
 				const auto turn = ++g_turn;
 				Choice::SetTurn(turn);
@@ -41,6 +45,7 @@ namespace
 						}
 						Events::TakeStock();
 						Events::SetArmed(true);
+						Stats::Refresh();
 						if (loaded) {
 							Choice::OnLoaded(turn);
 						} else {

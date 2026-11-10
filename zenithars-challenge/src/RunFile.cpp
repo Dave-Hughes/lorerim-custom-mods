@@ -1,5 +1,7 @@
 #include "RunFile.h"
 
+#include "Stats.h"
+
 #include "Events.h"
 #include "Ledger.h"
 #include "Rules.h"
@@ -198,6 +200,16 @@ namespace
 		body += std::format("\"kills\":[{}],", kills);
 
 		body += std::format("\"consoleOpened\":{},", snapshot.consoleOpened);
+
+		// The game's own totals for the character, as last answered (up to a minute old).
+		std::string stats;
+		for (const auto& [key, value] : Stats::Latest()) {
+			if (!stats.empty()) {
+				stats += ",";
+			}
+			stats += std::format("{}:{}", Quote(key), value);
+		}
+		body += std::format("\"stats\":{{{}}},", stats);
 
 		std::uint32_t pluginCount = 0;
 		std::string   pluginHash;
