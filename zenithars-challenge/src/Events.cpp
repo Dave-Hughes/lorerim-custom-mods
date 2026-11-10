@@ -467,7 +467,7 @@ namespace
 		}
 		SKSE::GetTaskInterface()->AddTask([a_forgetAfter]() {
 			SweepGearNow();
-			SKSE::GetTaskInterface()->AddTask([]() {
+			SKSE::GetTaskInterface()->AddTask([a_forgetAfter]() {
 				SweepGearNow();
 				SKSE::GetTaskInterface()->AddTask([a_forgetAfter]() {
 					SweepGearNow();
