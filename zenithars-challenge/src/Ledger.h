@@ -65,6 +65,18 @@ struct Violation
 class Ledger
 {
 public:
+	using MadeCounts = std::array<std::uint32_t, static_cast<std::size_t>(Source::kTotal)>;
+
+	// A copy of everything the run file reports.
+	struct Snapshot
+	{
+		Mode                                             mode{ Mode::kUnset };
+		std::vector<std::pair<RE::FormID, MadeCounts>>   made;
+		std::vector<Violation>                           violations;
+		std::vector<std::pair<RE::FormID, std::uint32_t>> killsByRace;
+		std::uint32_t                                    consoleOpened{ 0 };
+	};
+
 	static constexpr RE::FormID kPlayer = 0x14;
 
 	static Ledger& Get();
@@ -100,6 +112,12 @@ public:
 	std::uint32_t               Break(Rule a_rule, RE::FormID a_form, std::int32_t a_count, float a_day);
 	[[nodiscard]] std::uint32_t ViolationCount() const;
 
+	// Every kill by the player, by the victim's race, for the run's story.
+	void TallyKill(RE::FormID a_race);
+	// The console was opened.
+	void NoteConsole();
+	[[nodiscard]] Snapshot TakeSnapshot() const;
+
 	[[nodiscard]] Mode StoredMode() const;
 	void               SetMode(Mode a_mode);
 
@@ -110,8 +128,6 @@ public:
 
 private:
 	using Counts = std::unordered_map<RE::FormID, std::int32_t>;
-	using MadeCounts = std::array<std::uint32_t, static_cast<std::size_t>(Source::kTotal)>;
-
 	static void OnSave(SKSE::SerializationInterface* a_intfc);
 	static void OnLoad(SKSE::SerializationInterface* a_intfc);
 	static void OnRevert(SKSE::SerializationInterface* a_intfc);
@@ -129,4 +145,6 @@ private:
 	std::unordered_set<RE::FormID>            _kills;
 	std::vector<Violation>                    _violations;
 	Mode                                      _mode{ Mode::kUnset };
+	std::unordered_map<RE::FormID, std::uint32_t> _killsByRace;
+	std::uint32_t                             _consoleOpened{ 0 };
 };

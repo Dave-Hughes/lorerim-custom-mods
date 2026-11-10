@@ -9,6 +9,8 @@ namespace
 	constexpr std::uint32_t kRecordKills = 'KILL';
 	constexpr std::uint32_t kRecordViolations = 'VIOL';
 	constexpr std::uint32_t kRecordMode = 'MODE';
+	constexpr std::uint32_t kRecordRaceKills = 'KLRC';
+	constexpr std::uint32_t kRecordConsole = 'CNSL';
 	constexpr std::uint32_t kRecordVersion = 1;
 
 	constexpr std::size_t kMaxKills = 2048;
@@ -282,6 +284,33 @@ std::uint32_t Ledger::ViolationCount() const
 	return static_cast<std::uint32_t>(_violations.size());
 }
 
+void Ledger::TallyKill(RE::FormID a_race)
+{
+	if (a_race == 0) {
+		return;
+	}
+	std::scoped_lock lock(_lock);
+	++_killsByRace[a_race];
+}
+
+void Ledger::NoteConsole()
+{
+	std::scoped_lock lock(_lock);
+	++_consoleOpened;
+}
+
+Ledger::Snapshot Ledger::TakeSnapshot() const
+{
+	std::scoped_lock lock(_lock);
+	Snapshot         snapshot;
+	snapshot.mode = _mode;
+	snapshot.made.assign(_made.begin(), _made.end());
+	snapshot.violations = _violations;
+	snapshot.killsByRace.assign(_killsByRace.begin(), _killsByRace.end());
+	snapshot.consoleOpened = _consoleOpened;
+	return snapshot;
+}
+
 Mode Ledger::StoredMode() const
 {
 	std::scoped_lock lock(_lock);
@@ -297,6 +326,8 @@ void Ledger::SetMode(Mode a_mode)
 void Ledger::ClearLocked()
 {
 	_mode = Mode::kUnset;
+	_killsByRace.clear();
+	_consoleOpened = 0;
 	_violations.clear();
 	_earned.clear();
 	_unearned.clear();
@@ -399,6 +430,19 @@ void Ledger::OnSave(SKSE::SerializationInterface* a_intfc)
 		logger::error("failed to open the mode record");
 	}
 
+	if (a_intfc->OpenRecord(kRecordConsole, kRecordVersion)) {
+		a_intfc->WriteRecordData(self._consoleOpened);
+	}
+
+	if (a_intfc->OpenRecord(kRecordRaceKills, kRecordVersion)) {
+		const auto count = static_cast<std::uint32_t>(self._killsByRace.size());
+		a_intfc->WriteRecordData(count);
+		for (const auto& [race, kills] : self._killsByRace) {
+			a_intfc->WriteRecordData(race);
+			a_intfc->WriteRecordData(kills);
+		}
+	}
+
 	logger::debug("saved: {} holders, {} not-yours items, {} made items, {} kills, {} rules broken",
 		self._earned.size(), self._unearned.size(), self._made.size(), self._killOrder.size(), self._violations.size());
 }
@@ -428,6 +472,24 @@ void Ledger::OnLoad(SKSE::SerializationInterface* a_intfc)
 			// The value read as the count is the mode itself.
 			self._mode = count == static_cast<std::uint32_t>(Mode::kOath) ? Mode::kOath :
 						 count == static_cast<std::uint32_t>(Mode::kHonor) ? Mode::kHonor : Mode::kUnset;
+			break;
+		case kRecordConsole:
+			// The value read as the count is the number itself.
+			self._consoleOpened = count;
+			break;
+		case kRecordRaceKills:
+			for (std::uint32_t i = 0; i < count; ++i) {
+				std::uint32_t oldRace = 0;
+				std::uint32_t kills = 0;
+				if (!a_intfc->ReadRecordData(oldRace) || !a_intfc->ReadRecordData(kills)) {
+					logger::warn("truncated race-kills record after {} of {} entries", i, count);
+					break;
+				}
+				RE::FormID race = 0;
+				if (Resolve(a_intfc, oldRace, race)) {
+					self._killsByRace[race] += kills;
+				}
+			}
 			break;
 		case kRecordEarned:
 			for (std::uint32_t i = 0; i < count; ++i) {

@@ -34,6 +34,7 @@ set(SOURCES
 	src/Events.cpp
 	src/InventoryMarks.cpp
 	src/Rules.cpp
+	src/RunFile.cpp
 	src/Ledger.cpp
 	src/Settings.cpp
 )
@@ -42,6 +43,8 @@ set(HEADERS
 	src/Events.h
 	src/InventoryMarks.h
 	src/Rules.h
+	src/RunFile.h
+	src/Sha256.h
 	src/Ledger.h
 	src/Settings.h
 )

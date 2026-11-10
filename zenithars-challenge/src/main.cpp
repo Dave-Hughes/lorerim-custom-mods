@@ -1,6 +1,7 @@
 #include "Events.h"
 #include "InventoryMarks.h"
 #include "Ledger.h"
+#include "RunFile.h"
 #include "Settings.h"
 
 namespace
@@ -13,6 +14,9 @@ namespace
 		case SKSE::MessagingInterface::kDataLoaded:
 			Events::Register();
 			Events::InstallHooks();
+			break;
+		case SKSE::MessagingInterface::kSaveGame:
+			RunFile::Write();
 			break;
 		case SKSE::MessagingInterface::kPreLoadGame:
 			Events::SetArmed(false);

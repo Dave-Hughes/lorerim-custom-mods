@@ -203,6 +203,9 @@ void Events::Register()
 		holder->AddEventSink<RE::TESDeathEvent>(GetSingleton());
 		holder->AddEventSink<RE::TESActivateEvent>(GetSingleton());
 		holder->AddEventSink<RE::TESEquipEvent>(GetSingleton());
+		if (const auto ui = RE::UI::GetSingleton()) {
+			ui->AddEventSink<RE::MenuOpenCloseEvent>(GetSingleton());
+		}
 		logger::info("event sinks registered");
 	} else {
 		logger::critical("ScriptEventSourceHolder not available; the ledger will not run");
@@ -537,6 +540,12 @@ RE::BSEventNotifyControl Events::ProcessEvent(const RE::TESDeathEvent* a_event, 
 		return RE::BSEventNotifyControl::kContinue;
 	}
 	const auto victim = a_event->actorDying->As<RE::Actor>();
+	if (victim && a_event->dead) {
+		// The game reports a death twice (dying, then dead); the tally counts the second.
+		if (const auto race = victim->GetRace()) {
+			Ledger::Get().TallyKill(race->GetFormID());
+		}
+	}
 	if (IsHuntable(victim)) {
 		Ledger::Get().NoteKill(victim->GetFormID());
 		logger::debug("hunted {} [{:08X}]", victim->GetName(), victim->GetFormID());
@@ -647,6 +656,14 @@ RE::BSEventNotifyControl Events::ProcessEvent(const RE::TESEquipEvent* a_event, 
 		} else {
 			ShowLine(std::format("{} of your {} are not yours. Store them.", unearned, name));
 		}
+	}
+	return RE::BSEventNotifyControl::kContinue;
+}
+
+RE::BSEventNotifyControl Events::ProcessEvent(const RE::MenuOpenCloseEvent* a_event, RE::BSTEventSource<RE::MenuOpenCloseEvent>*)
+{
+	if (a_event && a_event->opening && a_event->menuName == RE::Console::MENU_NAME) {
+		Ledger::Get().NoteConsole();
 	}
 	return RE::BSEventNotifyControl::kContinue;
 }
