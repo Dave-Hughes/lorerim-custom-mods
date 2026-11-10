@@ -382,8 +382,42 @@ namespace
 				}
 				return;
 			}
+			// The row's name field: asked for under the names this window's row class uses, then found
+			// by looking for the text field that shows the name.
 			RE::GFxValue field;
-			if (!row.GetMember("textField", &field) || !field.IsObject()) {
+			std::string  fieldName;
+			for (const auto candidate : { "itemName", "textField", "label", "nameField" }) {
+				RE::GFxValue value;
+				if (row.GetMember(candidate, &value) && value.IsDisplayObject()) {
+					field = value;
+					fieldName = candidate;
+					break;
+				}
+			}
+			if (!field.IsDisplayObject()) {
+				row.VisitMembers([&](const char* a_key, const RE::GFxValue& a_value) {
+					if (field.IsDisplayObject() || !a_key || !a_value.IsDisplayObject()) {
+						return;
+					}
+					RE::GFxValue text;
+					if (a_value.GetMember("text", &text) && text.IsString() && Rules::ContainsNoCase(text.GetString(), shownName)) {
+						field = a_value;
+						fieldName = a_key;
+					}
+				});
+			}
+			static std::atomic_int told{ 0 };
+			if (told < 3) {
+				++told;
+				std::string members;
+				row.VisitMembers([&members](const char* a_key, const RE::GFxValue& a_value) {
+					if (a_key && a_value.IsDisplayObject()) {
+						members += std::format(" {}", a_key);
+					}
+				});
+				logger::debug("quick-loot row for \"{}\": name field \"{}\"; display objects on the row:{}", shownName, fieldName, members);
+			}
+			if (!field.IsDisplayObject()) {
 				return;
 			}
 			field.SetMember("textColor", RE::GFxValue(static_cast<double>(kNameColour)));

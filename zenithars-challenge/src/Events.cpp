@@ -395,19 +395,65 @@ namespace
 		}
 	}
 
-	void TakeOff(RE::FormID a_form)
+	// Takes off every worn or held copy of gear that is not the player's own (or, for a mixed stack,
+	// every copy of it). Names each worn copy and its hand outright: a second click puts a weapon in
+	// the other hand, which a plain "unequip this item" does not reach. Main thread only.
+	void SweepGearNow()
 	{
-		SKSE::GetTaskInterface()->AddTask([a_form]() {
-			const auto player = RE::PlayerCharacter::GetSingleton();
-			const auto object = RE::TESForm::LookupByID<RE::TESBoundObject>(a_form);
-			if (!player || !object) {
-				return;
+		const auto player = RE::PlayerCharacter::GetSingleton();
+		const auto manager = RE::ActorEquipManager::GetSingleton();
+		const auto changes = player ? player->GetInventoryChanges() : nullptr;
+		if (!manager || !changes || !changes->entryList) {
+			return;
+		}
+		struct Worn
+		{
+			RE::TESBoundObject* object;
+			RE::ExtraDataList*  list;
+			bool                left;
+		};
+		std::vector<Worn> off;
+		auto&             ledger = Ledger::Get();
+		for (const auto entry : *changes->entryList) {
+			if (!entry || !entry->object || !entry->extraLists || !MustBeOwnGear(entry->object)) {
+				continue;
 			}
-			if (const auto manager = RE::ActorEquipManager::GetSingleton()) {
-				// The worn copy is named outright, so a stack that mixes worn and unworn copies is not left half changed.
-				manager->UnequipObject(player, object, WornCopy(player, object), 1, nullptr, true, false, false, true);
-				RefreshItemScreens(player);
+			const auto form = entry->object->GetFormID();
+			if (ledger.Earned(Ledger::kPlayer, form) > 0 && ledger.UnearnedInPack(form) <= 0) {
+				continue;
 			}
+			for (const auto list : *entry->extraLists) {
+				if (!list) {
+					continue;
+				}
+				if (list->HasType(RE::ExtraDataType::kWornLeft)) {
+					off.push_back({ entry->object, list, true });
+				} else if (list->HasType(RE::ExtraDataType::kWorn)) {
+					off.push_back({ entry->object, list, false });
+				}
+			}
+		}
+		for (const auto& worn : off) {
+			const RE::BGSEquipSlot* slot = nullptr;
+			if (worn.object->Is(RE::FormType::Weapon)) {
+				slot = RE::TESForm::LookupByID<RE::BGSEquipSlot>(worn.left ? kLeftHandSlot : kRightHandSlot);
+			}
+			manager->UnequipObject(player, worn.object, worn.list, 1, slot, true, false, false, true);
+		}
+		if (!off.empty()) {
+			RefreshItemScreens(player);
+		}
+	}
+
+	// Now, and again on the next two frames: the game finishes an equip after reporting it.
+	void TakeOff(RE::FormID)
+	{
+		SKSE::GetTaskInterface()->AddTask([]() {
+			SweepGearNow();
+			SKSE::GetTaskInterface()->AddTask([]() {
+				SweepGearNow();
+				SKSE::GetTaskInterface()->AddTask([]() { SweepGearNow(); });
+			});
 		});
 	}
 }
@@ -889,6 +935,9 @@ RE::BSEventNotifyControl Events::ProcessEvent(const RE::TESEquipEvent* a_event, 
 	if (kind == Kind::kMagic) {
 		// Every time, even for a repeat: the second click on a spell is what used to stick.
 		ClearMagicHands();
+	} else {
+		// The same for gear: a second click puts a weapon in the other hand.
+		TakeOff(form);
 	}
 
 	{
@@ -934,6 +983,7 @@ RE::BSEventNotifyControl Events::ProcessEvent(const RE::MenuOpenCloseEvent* a_ev
 	if (a_event && !a_event->opening && Judging() &&
 		(a_event->menuName == RE::InventoryMenu::MENU_NAME || a_event->menuName == RE::MagicMenu::MENU_NAME || a_event->menuName == RE::FavoritesMenu::MENU_NAME)) {
 		ClearMagicHands();
+		TakeOff(0);
 	}
 	return RE::BSEventNotifyControl::kContinue;
 }
