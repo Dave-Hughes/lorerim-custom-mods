@@ -4,7 +4,8 @@
 // ledger in step. Nothing here changes the game; it only watches.
 class Events :
 	public RE::BSTEventSink<RE::TESContainerChangedEvent>,
-	public RE::BSTEventSink<RE::TESDeathEvent>
+	public RE::BSTEventSink<RE::TESDeathEvent>,
+	public RE::BSTEventSink<RE::TESActivateEvent>
 {
 public:
 	static Events* GetSingleton();
@@ -15,6 +16,7 @@ public:
 
 	RE::BSEventNotifyControl ProcessEvent(const RE::TESContainerChangedEvent* a_event, RE::BSTEventSource<RE::TESContainerChangedEvent>* a_source) override;
 	RE::BSEventNotifyControl ProcessEvent(const RE::TESDeathEvent* a_event, RE::BSTEventSource<RE::TESDeathEvent>* a_source) override;
+	RE::BSEventNotifyControl ProcessEvent(const RE::TESActivateEvent* a_event, RE::BSTEventSource<RE::TESActivateEvent>* a_source) override;
 
 private:
 	void OnAddedToPack(const RE::TESContainerChangedEvent& a_event, RE::TESForm* a_item);

@@ -16,8 +16,14 @@ namespace
 		case SKSE::MessagingInterface::kPostLoadGame:
 			Events::GetSingleton()->Reset();
 			if (Settings::bShowMadeMessages.GetValue()) {
-				const auto text = std::format("Zenithar's ledger is running: {} items made so far", Ledger::Get().TotalMade());
-				RE::SendHUDMessage::ShowHUDMessage(text.c_str());
+				// The HUD is not up yet while the loading screen is closing, so the line waits a few seconds.
+				std::thread([]() {
+					std::this_thread::sleep_for(6s);
+					SKSE::GetTaskInterface()->AddTask([]() {
+						const auto text = std::format("Zenithar's ledger is running: {} items made so far", Ledger::Get().TotalMade());
+						RE::SendHUDMessage::ShowHUDMessage(text.c_str());
+					});
+				}).detach();
 			}
 			break;
 		default:

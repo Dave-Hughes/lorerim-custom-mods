@@ -45,6 +45,8 @@ public:
 	void AddUnearned(RE::FormID a_form, std::int32_t a_count);
 	// n earned copies return to the pack without being made anew (an improved or enchanted item).
 	void AddEarned(RE::FormID a_form, std::int32_t a_count);
+	// n earned copies now sit with a holder (used when a dropped item's reference is known only a moment later).
+	void Place(RE::FormID a_holder, RE::FormID a_form, std::int32_t a_count);
 	// n copies moved between holders. Returns how many of them were earned.
 	std::int32_t Transfer(RE::FormID a_from, RE::FormID a_to, RE::FormID a_form, std::int32_t a_count);
 	// n copies left a holder and the world. Returns how many of them were earned.

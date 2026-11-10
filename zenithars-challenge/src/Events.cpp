@@ -16,8 +16,50 @@ namespace
 		kImprove,  // grindstone, armor workbench, enchanter: the same item comes back
 	};
 
+	using Clock = std::chrono::steady_clock;
+
 	std::mutex                                   g_benchLock;
 	std::unordered_map<RE::FormID, std::int32_t> g_benchPending;  // item -> earned copies put on an improvement bench
+
+	// The game reports an item picked up off the ground as arriving from nowhere. The activation
+	// just before it names the reference, so the last world item the player activated is kept.
+	struct Activated
+	{
+		RE::FormID        ref{ 0 };
+		RE::FormID        base{ 0 };
+		Clock::time_point when{};
+	};
+	std::mutex g_activatedLock;
+	Activated  g_activated;
+	constexpr auto kPickupWindow = 3s;
+
+	// Eating or drinking is reported twice a few milliseconds apart for a single item (seen in
+	// LoreRim 5.0.4.8). The second report within this window is ignored.
+	struct UsedUp
+	{
+		RE::FormID        form{ 0 };
+		std::int32_t      count{ 0 };
+		Clock::time_point when{};
+	};
+	std::mutex g_usedLock;
+	UsedUp     g_lastUsed;
+	constexpr auto kDoubleReportWindow = 150ms;
+
+	// A dropped item's reference is not ready at the moment the drop is reported. The earned
+	// copies are placed on it a frame or two later.
+	void PlaceOnDropped(RE::ObjectRefHandle a_handle, RE::FormID a_form, std::int32_t a_earned, int a_triesLeft)
+	{
+		SKSE::GetTaskInterface()->AddTask([a_handle, a_form, a_earned, a_triesLeft]() {
+			if (const auto ref = a_handle.get()) {
+				Ledger::Get().Place(ref->GetFormID(), a_form, a_earned);
+				logger::debug("dropped [{:08X}] is ref {:08X}: {} yours placed on it", a_form, ref->GetFormID(), a_earned);
+			} else if (a_triesLeft > 0) {
+				PlaceOnDropped(a_handle, a_form, a_earned, a_triesLeft - 1);
+			} else {
+				logger::warn("dropped [{:08X}]: its reference never appeared; {} earned copies lost", a_form, a_earned);
+			}
+		});
+	}
 
 	[[nodiscard]] RE::TESObjectREFRPtr OccupiedFurniture()
 	{
@@ -163,6 +205,7 @@ void Events::Register()
 	if (const auto holder = RE::ScriptEventSourceHolder::GetSingleton()) {
 		holder->AddEventSink<RE::TESContainerChangedEvent>(GetSingleton());
 		holder->AddEventSink<RE::TESDeathEvent>(GetSingleton());
+		holder->AddEventSink<RE::TESActivateEvent>(GetSingleton());
 		logger::info("event sinks registered");
 	} else {
 		logger::critical("ScriptEventSourceHolder not available; the ledger will not run");
@@ -171,8 +214,18 @@ void Events::Register()
 
 void Events::Reset()
 {
-	std::scoped_lock lock(g_benchLock);
-	g_benchPending.clear();
+	{
+		std::scoped_lock lock(g_benchLock);
+		g_benchPending.clear();
+	}
+	{
+		std::scoped_lock lock(g_activatedLock);
+		g_activated = {};
+	}
+	{
+		std::scoped_lock lock(g_usedLock);
+		g_lastUsed = {};
+	}
 }
 
 void Events::OnAddedToPack(const RE::TESContainerChangedEvent& a_event, RE::TESForm* a_item)
@@ -200,6 +253,24 @@ void Events::OnAddedToPack(const RE::TESContainerChangedEvent& a_event, RE::TESF
 		logger::debug("pack +{} {} [{:08X}] picked up (ref {:08X}): {} yours", count, ItemName(a_item), form, world.id, earned);
 		ShowNotYours(a_item, count - earned);
 		return;
+	}
+
+	// Picked up off the ground, reported as from nowhere: the activation just before names the reference.
+	{
+		RE::FormID pickedRef = 0;
+		{
+			std::scoped_lock lock(g_activatedLock);
+			if (g_activated.ref != 0 && g_activated.base == form && Clock::now() - g_activated.when <= kPickupWindow) {
+				pickedRef = g_activated.ref;
+				g_activated = {};
+			}
+		}
+		if (pickedRef != 0) {
+			const auto earned = ledger.Transfer(pickedRef, Ledger::kPlayer, form, count);
+			logger::debug("pack +{} {} [{:08X}] picked up (activated ref {:08X}): {} yours", count, ItemName(a_item), form, pickedRef, earned);
+			ShowNotYours(a_item, count - earned);
+			return;
+		}
 	}
 
 	// From nowhere: a bench, a vein, a chopping block, or a script.
@@ -258,16 +329,29 @@ void Events::OnLeftPack(const RE::TESContainerChangedEvent& a_event, RE::TESForm
 	if (const auto world = GetWorldRef(a_event); world.present) {
 		const auto earned = ledger.Transfer(Ledger::kPlayer, world.id, form, count);
 		logger::debug("pack -{} {} [{:08X}] dropped (ref {:08X}): {} yours", count, ItemName(a_item), form, world.id, earned);
+		if (world.id == 0 && earned > 0) {
+			PlaceOnDropped(a_event.reference, form, earned, 5);
+		}
 		return;
 	}
 
 	// Used up: eaten, drunk, spent as material, or put on a bench.
+	if (a_item->Is(RE::FormType::AlchemyItem) && CurrentBench() == Bench::kNone) {
+		std::scoped_lock lock(g_usedLock);
+		const auto       now = Clock::now();
+		if (g_lastUsed.form == form && g_lastUsed.count == count && now - g_lastUsed.when <= kDoubleReportWindow) {
+			g_lastUsed = {};
+			logger::debug("pack -{} {} [{:08X}] used up: second report of the same item, ignored (uid {})", count, ItemName(a_item), form, a_event.uniqueID);
+			return;
+		}
+		g_lastUsed = { form, count, now };
+	}
 	const auto earned = ledger.Consume(Ledger::kPlayer, form, count);
 	if (earned > 0 && CurrentBench() == Bench::kImprove) {
 		std::scoped_lock lock(g_benchLock);
 		g_benchPending[form] += earned;
 	}
-	logger::debug("pack -{} {} [{:08X}] used up: {} yours", count, ItemName(a_item), form, earned);
+	logger::debug("pack -{} {} [{:08X}] used up: {} yours (uid {})", count, ItemName(a_item), form, earned, a_event.uniqueID);
 }
 
 RE::BSEventNotifyControl Events::ProcessEvent(const RE::TESContainerChangedEvent* a_event, RE::BSTEventSource<RE::TESContainerChangedEvent>*)
@@ -330,5 +414,19 @@ RE::BSEventNotifyControl Events::ProcessEvent(const RE::TESDeathEvent* a_event, 
 		Ledger::Get().NoteKill(victim->GetFormID());
 		logger::debug("hunted {} [{:08X}]", victim->GetName(), victim->GetFormID());
 	}
+	return RE::BSEventNotifyControl::kContinue;
+}
+
+RE::BSEventNotifyControl Events::ProcessEvent(const RE::TESActivateEvent* a_event, RE::BSTEventSource<RE::TESActivateEvent>*)
+{
+	if (!a_event || !a_event->objectActivated || !a_event->actionRef || !a_event->actionRef->IsPlayerRef()) {
+		return RE::BSEventNotifyControl::kContinue;
+	}
+	const auto base = a_event->objectActivated->GetBaseObject();
+	if (!base) {
+		return RE::BSEventNotifyControl::kContinue;
+	}
+	std::scoped_lock lock(g_activatedLock);
+	g_activated = { a_event->objectActivated->GetFormID(), base->GetFormID(), Clock::now() };
 	return RE::BSEventNotifyControl::kContinue;
 }
