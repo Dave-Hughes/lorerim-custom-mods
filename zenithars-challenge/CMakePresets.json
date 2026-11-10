@@ -1,0 +1,28 @@
+{
+  "version": 3,
+  "cmakeMinimumRequired": { "major": 3, "minor": 22, "patch": 0 },
+  "configurePresets": [
+    {
+      "name": "release-msvc",
+      "displayName": "Release (MSVC, vcpkg)",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/release",
+      "toolchainFile": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "VCPKG_TARGET_TRIPLET": "x64-windows-static-md",
+        "VCPKG_HOST_TRIPLET": "x64-windows-static-md",
+        "VCPKG_INSTALLED_DIR": "${sourceDir}/vcpkg_installed",
+        "CMAKE_MSVC_RUNTIME_LIBRARY": "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL",
+        "CMAKE_CXX_FLAGS": "-DWIN32_LEAN_AND_MEAN -DNOMINMAX -DUNICODE -D_UNICODE /permissive- /Zc:preprocessor /EHsc /MP /W4 /external:anglebrackets /external:W0 /bigobj"
+      },
+      "architecture": { "value": "x64", "strategy": "external" },
+      "vendor": {
+        "microsoft.com/VisualStudioSettings/CMake/1.0": { "hostOS": [ "Windows" ] }
+      }
+    }
+  ],
+  "buildPresets": [
+    { "name": "release-msvc", "configurePreset": "release-msvc", "configuration": "Release" }
+  ]
+}

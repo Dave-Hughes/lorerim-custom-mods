@@ -6,6 +6,7 @@ builds on its own; shared libraries live under `lib/`.
 | Mod | What it does | Status |
 | --- | --- | --- |
 | [journal-declutter](journal-declutter/) | Hide unwanted quests from the journal with a hotkey. SKSE plugin, no ESP, no MCM. | in development |
+| [zenithars-challenge](zenithars-challenge/) | Referee for the Zenithar's Challenge run: counts what you craft, mine, chop, hunt, cook and brew. SKSE plugin. | phase 1 (ledger) |
 
 ## Building
 
