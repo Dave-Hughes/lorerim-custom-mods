@@ -30,6 +30,8 @@ public:
 
 	// The clothes a new character starts in become the player's own (not jewelry, not armor, not weapons). Main thread only.
 	static void KeepStartingClothes();
+	// Food in the pack now is the player's own, and so is food picked up before leaving this room. Main thread only.
+	static void BeginStartingGrace();
 	// The "keep starting items" choice: everything in the pack right now becomes the player's own. Main thread only.
 	static void KeepPack();
 

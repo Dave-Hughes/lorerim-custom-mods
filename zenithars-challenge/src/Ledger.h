@@ -143,6 +143,10 @@ public:
 	void               SetMode(Mode a_mode);
 	[[nodiscard]] std::uint32_t Options() const;
 	void                        SetOptions(std::uint32_t a_options);
+	// The room the character was in when it took the challenge, while it has not left it yet (0 after).
+	// Food picked up there counts as the character's own.
+	[[nodiscard]] RE::FormID StartCell() const;
+	void                     SetStartCell(RE::FormID a_cell);
 	// A new character has not been asked for its mode yet.
 	[[nodiscard]] bool ChoicePending() const;
 	void               SetChoicePending(bool a_pending);
@@ -178,6 +182,7 @@ private:
 	std::unordered_map<RE::FormID, std::uint32_t> _killsByRace;
 	std::uint32_t                             _consoleOpened{ 0 };
 	std::uint32_t                             _deaths{ 0 };
+	RE::FormID                                _startCell{ 0 };
 	double                                    _distance{ 0.0 };
 	std::uint32_t                             _options{ 0 };
 	bool                                      _choicePending{ false };

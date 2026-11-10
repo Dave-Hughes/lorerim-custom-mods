@@ -139,6 +139,32 @@ namespace
 		return (IsGem(a_item) && (options & Option::kLootGems) != 0) || (IsSoulGem(a_item) && (options & Option::kLootSoulGems) != 0);
 	}
 
+	[[nodiscard]] bool IsStartingFood(const RE::TESForm* a_item)
+	{
+		const auto food = a_item ? a_item->As<RE::AlchemyItem>() : nullptr;
+		return food && food->IsFood();
+	}
+
+	// True while the character is still in the room where it took the challenge. The first time it
+	// is found anywhere else, the grace is over for good.
+	[[nodiscard]] bool InStartingRoom()
+	{
+		const auto start = Ledger::Get().StartCell();
+		if (start == 0) {
+			return false;
+		}
+		const auto player = RE::PlayerCharacter::GetSingleton();
+		const auto cell = player ? player->GetParentCell() : nullptr;
+		if (cell && cell->GetFormID() == start) {
+			return true;
+		}
+		if (cell) {
+			Ledger::Get().SetStartCell(0);
+			logger::info("the character has left its starting room: food picked up from here on is not its own");
+		}
+		return false;
+	}
+
 	[[nodiscard]] Source MadeSource(RE::TESForm* a_item)
 	{
 		if (const auto alch = a_item ? a_item->As<RE::AlchemyItem>() : nullptr) {
@@ -632,6 +658,18 @@ void Events::OnAddedToPack(const RE::TESContainerChangedEvent& a_event, RE::TESF
 	const auto form = a_event.baseObj;
 	const auto count = a_event.itemCount;
 
+	// A new character's first meal: food picked up in the room where the challenge was taken.
+	if (InStartingRoom() && IsStartingFood(a_item)) {
+		if (a_event.oldContainer != 0) {
+			Ledger::Get().Transfer(a_event.oldContainer, Ledger::kPlayer, form, count);
+		} else {
+			Ledger::Get().AddUnearned(form, count);
+		}
+		Ledger::Get().Promote(form, count);
+		logger::debug("pack +{} {} [{:08X}] in the starting room: yours", count, ItemName(a_item), form);
+		return;
+	}
+
 	if (Judging() && IsMissive(a_item)) {
 		Break(Rule::kMissive, a_item, count, "Missives are not allowed.");
 	}
@@ -1090,4 +1128,24 @@ void Events::KeepStartingClothes()
 		++kinds;
 	}
 	logger::info("starting clothes kept: {} kinds of clothing", kinds);
+}
+
+void Events::BeginStartingGrace()
+{
+	const auto player = RE::PlayerCharacter::GetSingleton();
+	if (!player) {
+		return;
+	}
+	std::int32_t kinds = 0;
+	for (const auto& [object, data] : player->GetInventory()) {
+		if (object && IsStartingFood(object)) {
+			Ledger::Get().EarnPack(object->GetFormID(), data.first);
+			++kinds;
+		}
+	}
+	const auto cell = player->GetParentCell();
+	// Only an indoor room: out of doors "this room" would be a patch of the world.
+	const auto room = cell && cell->IsInteriorCell() ? cell->GetFormID() : 0;
+	Ledger::Get().SetStartCell(room);
+	logger::info("starting food kept: {} kinds; starting room {:08X}", kinds, room);
 }

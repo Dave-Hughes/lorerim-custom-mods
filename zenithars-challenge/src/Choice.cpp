@@ -176,7 +176,7 @@ namespace
 		});
 	}
 
-	void Box(const char* a_text, std::function<void()> a_next)
+	[[maybe_unused]] void Box(const char* a_text, std::function<void()> a_next)
 	{
 		RE::DebugMessageBox(a_text);
 		// Give the box a moment to open before watching for it to close.
@@ -198,53 +198,41 @@ namespace
 			// jewelry and other gear are not.
 			Events::KeepStartingClothes();
 		}
+		if (a_mode == Mode::kOath) {
+			// A character has to eat: the food it has now, and what it picks up before leaving this room, is its own.
+			Events::BeginStartingGrace();
+		}
 		Status::Sync();
 		g_asking = false;
 		logger::info("CHOSEN: {} options {:#04x}", a_mode == Mode::kOath ? "the challenge" : "standard playthrough", a_options);
-		RE::DebugMessageBox(a_mode == Mode::kOath ?
-				"Your oath is sworn.\n\nThe game will hold you to the rules of Zenithar's Challenge. Use the power Zenithar's Ledger to look over your run." :
-				"A standard playthrough.\n\nZenithar's Challenge is off for this character.");
+		RE::SendHUDMessage::ShowHUDMessage(a_mode == Mode::kOath ? "Zenithar's Challenge: your oath is sworn." : "Zenithar's Challenge is off for this character.");
 	}
 
-	void AskOptions(Mode a_mode)
+	// One window asks everything: the first card takes the challenge, the six under it are the
+	// rules the challenge leaves to the player. Confirming with the first card unticked is a
+	// standard playthrough.
+	void AskMode()
 	{
 		std::vector<Card> cards{
+			{ "Zenithar's Challenge", "Tick this to take the challenge: craft everything you use, and the game holds you to it.\n\nGear, food and potions you did not make cannot be used. Spells, scrolls and staves cannot be used. What is not yours cannot be sold.\n\nLeave it unticked for a standard playthrough. Either way, this cannot be changed later.\n\nThe cards below are rules the challenge leaves up to you. Tick one to allow it.", Picture("Challenge"sv) },
 			{ "Looted Gems", "Ticked: gems you take from chests, bodies and shops count as yours.\n\nUnticked: only gems that drop when you mine a vein count.", Picture("LootedGems"sv) },
 			{ "Looted Soul Gems", "Ticked: empty soul gems you take from chests, bodies and shops count as yours.\n\nUnticked: only soul gems you craft count.", Picture("LootedSoulGems"sv) },
 			{ "Coin Purse Gems", "Ticked: gems that come out of coin purses count as yours.\n\nUnticked: they do not, so toss them.", Picture("CoinPurseGems"sv) },
 			{ "Quest Rewards", "Ticked: items handed to you as quest rewards count as yours.\n\nUnticked: only the septims do.", Picture("QuestRewards"sv) },
-			{ "Starting Gear", "Ticked: the weapons, armor, jewelry and other gear your start handed you count as yours.\n\nUnticked: they do not, so leave them behind.\n\nThe clothes you start in are yours either way.", Picture("StartingItems"sv) },
+			{ "Starting Gear", "Ticked: the weapons, armor, jewelry and other gear your start handed you count as yours.\n\nUnticked: they do not, so leave them behind.\n\nThe clothes you start in, and the food you have or pick up before you leave this room, are yours either way.", Picture("StartingItems"sv) },
 			{ "Others' Kills", "Ticked: hides and meat from any dead animal count as hunted.\n\nUnticked: only animals you killed yourself count.", Picture("OthersKills"sv) },
 		};
-		OpenWindow(std::move(cards), 6, 0, [a_mode](std::vector<int> a_picked) {
+		OpenWindow(std::move(cards), 7, 0, [](std::vector<int> a_picked) {
+			auto          challenge = false;
 			std::uint32_t options = 0;
 			for (const auto index : a_picked) {
-				if (index >= 0 && index < 6) {
-					options |= 1u << index;
+				if (index == 0) {
+					challenge = true;
+				} else if (index >= 1 && index <= 6) {
+					options |= 1u << (index - 1);
 				}
 			}
-			Finish(a_mode, options);
-		});
-	}
-
-	void AskMode()
-	{
-		std::vector<Card> cards{
-			{ "Zenithar's Challenge", "Craft everything you use, and the game holds you to it.\n\nGear, food and potions you did not make cannot be used. Spells, scrolls and staves cannot be used. What is not yours cannot be sold.\n\nThis cannot be changed later.", Picture("Challenge"sv) },
-			{ "Standard Playthrough", "Play LoreRim as usual.\n\nThe challenge is off for this character and nothing is stopped.\n\nThis cannot be changed later.", Picture("Standard"sv) },
-		};
-		OpenWindow(std::move(cards), 1, 1, [](std::vector<int> a_picked) {
-			if (a_picked.empty()) {
-				// Confirmed with nothing ticked: ask again.
-				AskMode();
-				return;
-			}
-			if (a_picked.front() != 0) {
-				Finish(Mode::kOff, 0);
-				return;
-			}
-			const auto mode = Mode::kOath;
-			Box("Now choose the rules the challenge leaves up to you.\n\nTick a card to allow it. You may tick none.", [mode]() { AskOptions(mode); });
+			Finish(challenge ? Mode::kOath : Mode::kOff, challenge ? options : 0);
 		});
 	}
 

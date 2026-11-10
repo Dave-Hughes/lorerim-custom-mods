@@ -14,6 +14,7 @@ namespace
 	constexpr std::uint32_t kRecordOptions = 'OPTS';
 	constexpr std::uint32_t kRecordPending = 'PEND';
 	constexpr std::uint32_t kRecordDeaths = 'DTHS';
+	constexpr std::uint32_t kRecordStartCell = 'STCL';
 	constexpr std::uint32_t kRecordDistance = 'DIST';  // stored in hundreds of game units
 	constexpr std::uint32_t kRecordVersion = 1;
 
@@ -344,6 +345,18 @@ void Ledger::NoteConsole()
 	++_consoleOpened;
 }
 
+RE::FormID Ledger::StartCell() const
+{
+	std::scoped_lock lock(_lock);
+	return _startCell;
+}
+
+void Ledger::SetStartCell(RE::FormID a_cell)
+{
+	std::scoped_lock lock(_lock);
+	_startCell = a_cell;
+}
+
 void Ledger::NoteDeath()
 {
 	std::scoped_lock lock(_lock);
@@ -389,6 +402,7 @@ void Ledger::ClearLocked()
 	_killsByRace.clear();
 	_consoleOpened = 0;
 	_deaths = 0;
+	_startCell = 0;
 	_distance = 0.0;
 	_options = 0;
 	_choicePending = false;
@@ -508,6 +522,9 @@ void Ledger::OnSave(SKSE::SerializationInterface* a_intfc)
 	if (a_intfc->OpenRecord(kRecordDeaths, kRecordVersion)) {
 		a_intfc->WriteRecordData(self._deaths);
 	}
+	if (a_intfc->OpenRecord(kRecordStartCell, kRecordVersion)) {
+		a_intfc->WriteRecordData(self._startCell);
+	}
 	if (a_intfc->OpenRecord(kRecordDistance, kRecordVersion)) {
 		a_intfc->WriteRecordData(static_cast<std::uint32_t>(std::min(self._distance / 100.0, 4.0e9)));
 	}
@@ -563,6 +580,10 @@ void Ledger::OnLoad(SKSE::SerializationInterface* a_intfc)
 			break;
 		case kRecordDeaths:
 			self._deaths = count;
+			break;
+		case kRecordStartCell:
+			// An interior room of the base game or a full plugin: the id is kept as saved.
+			self._startCell = count;
 			break;
 		case kRecordDistance:
 			self._distance = static_cast<double>(count) * 100.0;
