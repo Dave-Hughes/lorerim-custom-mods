@@ -10,6 +10,9 @@ namespace Settings
 	// Items from these plugins may be eaten or drunk whoever made them (water, provisions). Separate names with |
 	inline REX::INI::Str sAllowedPlugins{ "Rules", "sAllowedPlugins", "Waterskin.esp|LoreRim Respawn Provision.esp" };
 
+	// Testing aid until the character-creation choice exists: "honor" or "oath" overrides the saved mode. Empty = use the save's.
+	inline REX::INI::Str sForceMode{ "Rules", "sForceMode", "" };
+
 	// Messages
 	inline REX::INI::Bool bShowWarnings{ "Messages", "bShowWarnings", true };
 	inline REX::INI::Bool bShowMadeMessages{ "Messages", "bShowMadeMessages", true };

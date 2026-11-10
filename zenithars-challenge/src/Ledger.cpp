@@ -8,6 +8,7 @@ namespace
 	constexpr std::uint32_t kRecordMade = 'MADE';
 	constexpr std::uint32_t kRecordKills = 'KILL';
 	constexpr std::uint32_t kRecordViolations = 'VIOL';
+	constexpr std::uint32_t kRecordMode = 'MODE';
 	constexpr std::uint32_t kRecordVersion = 1;
 
 	constexpr std::size_t kMaxKills = 2048;
@@ -281,8 +282,21 @@ std::uint32_t Ledger::ViolationCount() const
 	return static_cast<std::uint32_t>(_violations.size());
 }
 
+Mode Ledger::StoredMode() const
+{
+	std::scoped_lock lock(_lock);
+	return _mode;
+}
+
+void Ledger::SetMode(Mode a_mode)
+{
+	std::scoped_lock lock(_lock);
+	_mode = a_mode;
+}
+
 void Ledger::ClearLocked()
 {
+	_mode = Mode::kUnset;
 	_violations.clear();
 	_earned.clear();
 	_unearned.clear();
@@ -378,6 +392,13 @@ void Ledger::OnSave(SKSE::SerializationInterface* a_intfc)
 		logger::error("failed to open the violations record");
 	}
 
+	if (a_intfc->OpenRecord(kRecordMode, kRecordVersion)) {
+		const std::uint32_t mode = static_cast<std::uint32_t>(self._mode);
+		a_intfc->WriteRecordData(mode);
+	} else {
+		logger::error("failed to open the mode record");
+	}
+
 	logger::debug("saved: {} holders, {} not-yours items, {} made items, {} kills, {} rules broken",
 		self._earned.size(), self._unearned.size(), self._made.size(), self._killOrder.size(), self._violations.size());
 }
@@ -403,6 +424,11 @@ void Ledger::OnLoad(SKSE::SerializationInterface* a_intfc)
 		}
 
 		switch (type) {
+		case kRecordMode:
+			// The value read as the count is the mode itself.
+			self._mode = count == static_cast<std::uint32_t>(Mode::kOath) ? Mode::kOath :
+						 count == static_cast<std::uint32_t>(Mode::kHonor) ? Mode::kHonor : Mode::kUnset;
+			break;
 		case kRecordEarned:
 			for (std::uint32_t i = 0; i < count; ++i) {
 				std::uint32_t oldHolder = 0;

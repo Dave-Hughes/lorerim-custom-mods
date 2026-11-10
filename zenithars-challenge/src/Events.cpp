@@ -215,6 +215,83 @@ void Events::SetArmed(bool a_armed)
 	logger::debug("rules {}", a_armed ? "armed" : "disarmed");
 }
 
+Mode Events::CurrentMode()
+{
+	const auto forced = Settings::sForceMode.GetValue();
+	if (EqualsNoCase(forced, "oath"sv)) {
+		return Mode::kOath;
+	}
+	if (EqualsNoCase(forced, "honor"sv)) {
+		return Mode::kHonor;
+	}
+	const auto stored = Ledger::Get().StoredMode();
+	return stored == Mode::kOath ? Mode::kOath : Mode::kHonor;
+}
+
+namespace
+{
+	void ShowLine(const std::string& a_text)
+	{
+		if (Settings::bShowWarnings.GetValue()) {
+			const auto text = std::format("Zenithar: {}", a_text);
+			RE::SendHUDMessage::ShowHUDMessage(text.c_str());
+		}
+	}
+
+	// Oath mode: food and potions that are not the player's own are refused before they are used.
+	// Actor::DrinkPotion is what the game calls for both.
+	struct DrinkPotionHook
+	{
+		static bool thunk(RE::Actor* a_this, RE::AlchemyItem* a_potion, RE::ExtraDataList* a_extraList)
+		{
+			if (a_potion && g_armed && Events::CurrentMode() == Mode::kOath && MustBeOwn(a_potion) &&
+				Ledger::Get().Earned(Ledger::kPlayer, a_potion->GetFormID()) <= 0) {
+				const auto name = ItemName(a_potion);
+				logger::info("OATH refused: {} [{:08X}] not consumed", name, a_potion->GetFormID());
+				ShowLine(a_potion->IsFood() ? std::format("{} was not cooked by you. Your oath holds.", name) :
+											  std::format("{} was not brewed by you. Your oath holds.", name));
+				return false;
+			}
+			return func(a_this, a_potion, a_extraList);
+		}
+
+		static inline REL::Relocation<decltype(thunk)> func;
+		static constexpr std::size_t                   kIndex = 0x10F;
+	};
+
+	// Oath mode: takes back off what the player just put on.
+	void TakeOff(RE::FormID a_form)
+	{
+		SKSE::GetTaskInterface()->AddTask([a_form]() {
+			const auto player = RE::PlayerCharacter::GetSingleton();
+			const auto item = RE::TESForm::LookupByID(a_form);
+			if (!player || !item) {
+				return;
+			}
+			if (const auto spell = item->As<RE::SpellItem>(); spell && !item->Is(RE::FormType::Scroll)) {
+				player->DeselectSpell(spell);
+				return;
+			}
+			if (const auto object = item->As<RE::TESBoundObject>()) {
+				if (const auto manager = RE::ActorEquipManager::GetSingleton()) {
+					manager->UnequipObject(player, object, nullptr, 1, nullptr, true, false, false, true);
+				}
+			}
+		});
+	}
+}
+
+void Events::InstallHooks()
+{
+	if (REL::Module::IsVR()) {
+		logger::warn("VR: the food and potion hook is not installed");
+		return;
+	}
+	REL::Relocation<std::uintptr_t> vtbl{ RE::VTABLE_PlayerCharacter[0] };
+	DrinkPotionHook::func = vtbl.write_vfunc(DrinkPotionHook::kIndex, DrinkPotionHook::thunk);
+	logger::info("food and potion hook installed");
+}
+
 void Events::TakeStock()
 {
 	const auto player = RE::PlayerCharacter::GetSingleton();
@@ -537,19 +614,39 @@ RE::BSEventNotifyControl Events::ProcessEvent(const RE::TESEquipEvent* a_event, 
 		g_lastEquip = { form, now };
 	}
 
+	const auto oath = CurrentMode() == Mode::kOath;
+
 	if (kind == Kind::kMagic) {
-		Break(Rule::kMagic, item, 1, std::format("{} is magic. Only enchanting is allowed.", name));
+		if (oath) {
+			logger::info("OATH refused: {} [{:08X}] (magic) taken off", name, form);
+			ShowLine(std::format("{} is magic. Only enchanting is allowed. Your oath holds.", name));
+			TakeOff(form);
+		} else {
+			Break(Rule::kMagic, item, 1, std::format("{} is magic. Only enchanting is allowed.", name));
+		}
 		return RE::BSEventNotifyControl::kContinue;
 	}
 
 	auto&      ledger = Ledger::Get();
 	const auto earned = ledger.Earned(Ledger::kPlayer, form);
+	const auto unearned = ledger.UnearnedInPack(form);
 	if (earned <= 0) {
-		Break(Rule::kGear, item, 1, std::format("{} was not made by your hand.", name));
-	} else if (const auto unearned = ledger.UnearnedInPack(form); unearned > 0 && Settings::bShowWarnings.GetValue()) {
-		// A mixed stack: a caution, not a broken rule.
-		const auto text = std::format("Zenithar: {} of your {} are not yours. Store them.", unearned, name);
-		RE::SendHUDMessage::ShowHUDMessage(text.c_str());
+		if (oath) {
+			logger::info("OATH refused: {} [{:08X}] taken off", name, form);
+			ShowLine(std::format("{} was not made by your hand. Your oath holds.", name));
+			TakeOff(form);
+		} else {
+			Break(Rule::kGear, item, 1, std::format("{} was not made by your hand.", name));
+		}
+	} else if (unearned > 0) {
+		// A mixed stack: some copies are the player's own and some are not.
+		if (oath) {
+			logger::info("OATH refused: {} [{:08X}] mixed stack ({} not yours) taken off", name, form, unearned);
+			ShowLine(std::format("{} of your {} are not yours. Store them first.", unearned, name));
+			TakeOff(form);
+		} else {
+			ShowLine(std::format("{} of your {} are not yours. Store them.", unearned, name));
+		}
 	}
 	return RE::BSEventNotifyControl::kContinue;
 }

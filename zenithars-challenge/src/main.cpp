@@ -12,6 +12,7 @@ namespace
 		switch (a_msg->type) {
 		case SKSE::MessagingInterface::kDataLoaded:
 			Events::Register();
+			Events::InstallHooks();
 			break;
 		case SKSE::MessagingInterface::kPreLoadGame:
 			Events::SetArmed(false);
@@ -34,8 +35,8 @@ namespace
 						Events::TakeStock();
 						Events::SetArmed(true);
 						if (loaded && Settings::bShowMadeMessages.GetValue()) {
-							const auto text = std::format("Zenithar's ledger is running: {} items made, {} rules broken",
-								Ledger::Get().TotalMade(), Ledger::Get().ViolationCount());
+							const auto text = std::format("Zenithar's Challenge ({}): {} items made, {} rules broken",
+								Events::CurrentMode() == Mode::kOath ? "Oath" : "Honor", Ledger::Get().TotalMade(), Ledger::Get().ViolationCount());
 							RE::SendHUDMessage::ShowHUDMessage(text.c_str());
 						}
 					});

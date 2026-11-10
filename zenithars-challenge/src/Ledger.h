@@ -29,6 +29,14 @@ enum class Rule : std::uint8_t
 	kTotal
 };
 
+// How the rules are enforced for this character. Chosen once, at character creation.
+enum class Mode : std::uint8_t
+{
+	kUnset = 0,  // not chosen yet: behaves as Honor
+	kHonor,      // breaking a rule is allowed, warned about and recorded
+	kOath,       // breaking a rule is refused
+};
+
 struct Violation
 {
 	Rule         rule{ Rule::kGear };
@@ -92,6 +100,9 @@ public:
 	std::uint32_t               Break(Rule a_rule, RE::FormID a_form, std::int32_t a_count, float a_day);
 	[[nodiscard]] std::uint32_t ViolationCount() const;
 
+	[[nodiscard]] Mode StoredMode() const;
+	void               SetMode(Mode a_mode);
+
 	void Clear();
 
 	// SKSE serialization
@@ -117,4 +128,5 @@ private:
 	std::deque<RE::FormID>                    _killOrder;
 	std::unordered_set<RE::FormID>            _kills;
 	std::vector<Violation>                    _violations;
+	Mode                                      _mode{ Mode::kUnset };
 };
