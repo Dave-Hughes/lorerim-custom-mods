@@ -140,12 +140,28 @@ namespace
 	}
 
 	// Opens the card window. a_done gets the indexes of the cards the player ticked.
+	// The card window is one shared window: LoreRim's traits use it, and so do other mods (Callings
+	// asks its own question at the same moment a new character is ready). Two mods filling it at
+	// once end up in one list. So ours waits its turn: the window and any message box must have
+	// been closed for three seconds running before it opens.
+	void OpenWhenQuiet(std::vector<Card> a_cards, int a_max, int a_min, int a_quietChecks)
+	{
+		After(500ms, [cards = std::move(a_cards), a_max, a_min, a_quietChecks]() mutable {
+			const auto busy = MenuOpen(kMenu) || MenuOpen(RE::MessageBoxMenu::MENU_NAME);
+			if (busy || a_quietChecks < 6) {
+				OpenWhenQuiet(std::move(cards), a_max, a_min, busy ? 0 : a_quietChecks + 1);
+				return;
+			}
+			CallUI("OpenCustomMenu", RE::MakeFunctionArguments(RE::BSFixedString(kSwf), std::int32_t{ 0 }));
+			WaitForWindow(std::move(cards), a_max, a_min, 100);
+		});
+	}
+
 	void OpenWindow(std::vector<Card> a_cards, int a_max, int a_min, Done a_done)
 	{
 		g_done = std::move(a_done);
 		g_waiting = false;
-		CallUI("OpenCustomMenu", RE::MakeFunctionArguments(RE::BSFixedString(kSwf), std::int32_t{ 0 }));
-		WaitForWindow(std::move(a_cards), a_max, a_min, 100);
+		OpenWhenQuiet(std::move(a_cards), a_max, a_min, 0);
 	}
 
 	// Shows a message box, then runs a_next once the player has closed it.
