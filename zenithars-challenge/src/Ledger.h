@@ -139,6 +139,8 @@ public:
 	// A new character has not been asked for its mode yet.
 	[[nodiscard]] bool ChoicePending() const;
 	void               SetChoicePending(bool a_pending);
+	// Up to n not-yours copies in the pack become the player's own (an allowed quest reward or coin purse gem). Returns how many.
+	std::int32_t Promote(RE::FormID a_form, std::int32_t a_count);
 	// Everything the pack holds of this item becomes the player's own (the "keep starting items" choice).
 	void EarnPack(RE::FormID a_form, std::int32_t a_actual);
 

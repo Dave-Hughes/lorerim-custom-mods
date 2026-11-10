@@ -12,6 +12,179 @@ namespace
 	std::atomic_int  g_logged{ 0 };
 	std::atomic_int  g_loggedOther{ 0 };
 
+	// ---- the mark itself ----
+	//
+	// LoreRim's item lists are SkyUI's (Norden UI is a reskin of them). A row is drawn by the list's
+	// InventoryListEntry class: formatName writes the name and lines up the small icons after it
+	// (favorite, stolen, enchanted...), formatColor colours the text. Those icons are a fixed set
+	// baked into the list's file, so ours is added from here: both functions are wrapped once per
+	// screen, and after the original has run the wrapper draws a small struck-through anvil after
+	// the row's other icons and tints the name. Nothing in any interface file is changed.
+
+	constexpr auto kMarkName = "zenitharMark";
+	constexpr auto kMarkDepth = 7310.0;          // above the row's own art, which sits at negative depths
+	constexpr auto kMarkBox = 16.0;              // the mark is drawn in a 16 by 16 box, then scaled to the row's icons
+	constexpr auto kNameColour = 0xD9907C;       // a dull red, for the name of something wholly not yours
+	constexpr auto kAnvilColour = 0xC9A66B;
+	constexpr auto kStrikeColour = 0xD0463B;
+
+	[[nodiscard]] double Number(const RE::GFxValue& a_object, const char* a_name, double a_default = 0.0)
+	{
+		RE::GFxValue value;
+		if (a_object.IsObject() && a_object.GetMember(a_name, &value) && value.IsNumber()) {
+			return value.GetNumber();
+		}
+		return a_default;
+	}
+
+	[[nodiscard]] bool Flag(const RE::GFxValue& a_object, const char* a_name)
+	{
+		RE::GFxValue value;
+		return a_object.IsObject() && a_object.GetMember(a_name, &value) && value.IsBool() && value.GetBool();
+	}
+
+	void Call(RE::GFxValue& a_clip, const char* a_function, std::initializer_list<double> a_numbers)
+	{
+		std::vector<RE::GFxValue> args;
+		args.reserve(a_numbers.size());
+		for (const auto number : a_numbers) {
+			args.emplace_back(number);
+		}
+		a_clip.Invoke(a_function, nullptr, args.data(), args.size());
+	}
+
+	// An anvil seen from the side, struck through.
+	void DrawMark(RE::GFxValue& a_clip)
+	{
+		static constexpr std::array<std::pair<double, double>, 13> anvil{ {
+			{ 0, 4 }, { 15, 4 }, { 15, 7 }, { 11, 7 }, { 10, 9 }, { 12, 12 }, { 12, 14 }, { 3, 14 }, { 3, 12 }, { 5, 9 }, { 4, 7 }, { 2, 6.5 }, { 0, 5 },
+		} };
+		a_clip.Invoke("clear");
+		Call(a_clip, "beginFill", { static_cast<double>(kAnvilColour), 100.0 });
+		Call(a_clip, "moveTo", { anvil[0].first, anvil[0].second });
+		for (std::size_t i = 1; i < anvil.size(); ++i) {
+			Call(a_clip, "lineTo", { anvil[i].first, anvil[i].second });
+		}
+		a_clip.Invoke("endFill");
+		Call(a_clip, "lineStyle", { 2.0, static_cast<double>(kStrikeColour), 100.0 });
+		Call(a_clip, "moveTo", { 1.0, 15.0 });
+		Call(a_clip, "lineTo", { 15.0, 1.0 });
+	}
+
+	// After the row's own formatName: put the mark after its other icons, or hide it.
+	void PlaceMark(RE::GFxValue& a_row, const RE::GFxValue& a_field, const RE::GFxValue& a_entry, const RE::GFxValue& a_state)
+	{
+		RE::GFxValue mark;
+		const auto   has = a_row.GetMember(kMarkName, &mark) && mark.IsDisplayObject();
+		if (Number(a_entry, "zenitharNotYours") <= 0.0) {
+			if (has) {
+				mark.SetMember("_visible", RE::GFxValue(false));
+			}
+			return;
+		}
+		if (!has) {
+			RE::GFxValue name;
+			name.SetString(kMarkName);
+			const std::array<RE::GFxValue, 2> args{ name, RE::GFxValue(kMarkDepth) };
+			a_row.Invoke("createEmptyMovieClip", &mark, args.data(), args.size());
+			if (!mark.IsDisplayObject()) {
+				return;
+			}
+			DrawMark(mark);
+		}
+
+		// The same sums the row's own script does for the icons it places.
+		RE::GFxValue best;
+		a_row.GetMember("bestIcon", &best);
+		const auto width = std::max(8.0, Number(best, "_width", kMarkBox));
+		const auto height = std::max(8.0, Number(best, "_height", kMarkBox));
+		const auto space = width * 1.25;
+		auto       x = Number(a_field, "_x") + Number(a_field, "_width") + 5.0;
+		for (const auto shown : { Flag(a_entry, "bestInClass"), Flag(a_entry, "favorite"), Flag(a_entry, "isPoisoned"),
+				 (Flag(a_entry, "isStolen") || Flag(a_entry, "isStealing")) && Flag(a_state, "showStolenIcon"), Flag(a_entry, "isEnchanted"), Flag(a_entry, "isRead") }) {
+			if (shown) {
+				x += space;
+			}
+		}
+		mark.SetMember("_x", RE::GFxValue(x));
+		mark.SetMember("_y", RE::GFxValue(Number(best, "_y")));
+		mark.SetMember("_xscale", RE::GFxValue(height / kMarkBox * 100.0));
+		mark.SetMember("_yscale", RE::GFxValue(height / kMarkBox * 100.0));
+		mark.SetMember("_visible", RE::GFxValue(true));
+	}
+
+	class NameHandler : public RE::GFxFunctionHandler
+	{
+	public:
+		void Call(Params& a_params) override
+		{
+			if (!a_params.thisPtr) {
+				return;
+			}
+			a_params.thisPtr->Invoke("zenitharFormatName", nullptr, a_params.args, a_params.argCount);
+			if (a_params.argCount >= 3) {
+				PlaceMark(*a_params.thisPtr, a_params.args[0], a_params.args[1], a_params.args[2]);
+			}
+		}
+	};
+
+	class ColourHandler : public RE::GFxFunctionHandler
+	{
+	public:
+		void Call(Params& a_params) override
+		{
+			if (!a_params.thisPtr) {
+				return;
+			}
+			a_params.thisPtr->Invoke("zenitharFormatColor", nullptr, a_params.args, a_params.argCount);
+			if (a_params.argCount >= 2 && Flag(a_params.args[1], "zenitharAll")) {
+				RE::GFxValue enabled;
+				const auto   greyed = a_params.args[1].GetMember("enabled", &enabled) && enabled.IsBool() && !enabled.GetBool();
+				if (!greyed) {
+					a_params.args[0].SetMember("textColor", RE::GFxValue(static_cast<double>(kNameColour)));
+				}
+			}
+		}
+	};
+
+	// Wraps the list's two functions, once per screen. False when the screen's rows are not SkyUI's.
+	[[nodiscard]] bool WrapRows(RE::GFxMovieView* a_view)
+	{
+		static const auto nameHandler = RE::make_gptr<NameHandler>();
+		static const auto colourHandler = RE::make_gptr<ColourHandler>();
+
+		RE::GFxValue proto;
+		if (!a_view->GetVariable(&proto, "_global.InventoryListEntry.prototype") || !proto.IsObject()) {
+			return false;
+		}
+		if (Flag(proto, "zenitharWrapped")) {
+			return true;
+		}
+		RE::GFxValue formatName;
+		if (!proto.GetMember("formatName", &formatName) || !formatName.IsObject()) {
+			static std::atomic_bool told{ false };
+			if (!told.exchange(true)) {
+				logger::warn("the row class is there but its formatName could not be wrapped; using the stolen icon instead");
+			}
+			return false;
+		}
+		RE::GFxValue wrapped;
+		proto.SetMember("zenitharFormatName", formatName);
+		a_view->CreateFunction(&wrapped, nameHandler.get());
+		proto.SetMember("formatName", wrapped);
+
+		RE::GFxValue formatColor;
+		if (proto.GetMember("formatColor", &formatColor) && formatColor.IsObject()) {
+			RE::GFxValue wrappedColour;
+			proto.SetMember("zenitharFormatColor", formatColor);
+			a_view->CreateFunction(&wrappedColour, colourHandler.get());
+			proto.SetMember("formatColor", wrappedColour);
+		}
+		proto.SetMember("zenitharWrapped", RE::GFxValue(true));
+		logger::info("inventory rows wrapped for the mark");
+		return true;
+	}
+
 	// Called by SKSE for every row the game builds for an item list.
 	void OnInventoryEntry(RE::GFxMovieView* a_view, RE::GFxValue* a_object, RE::InventoryEntryData* a_item)
 	{
@@ -66,12 +239,11 @@ namespace
 			return;
 		}
 
-		// A row that is wholly not yours gets the screen's own "not the player's" look: the stolen icon
-		// after the name and the stolen text colour. SkyUI-style lists (LoreRim's Norden UI is one)
-		// read both from isStealing, which nothing else sets on these screens. iconColor is no use:
-		// the screen's own script overwrites it after this runs.
+		// What the wrapped row functions read: how many copies are not yours, and whether that is all of them.
 		a_object->SetMember("zenitharNotYours", RE::GFxValue(static_cast<double>(notYours)));
-		if (Settings::bMarkWithIcon.GetValue() && notYours >= count) {
+		a_object->SetMember("zenitharAll", RE::GFxValue(notYours >= count));
+		if (Settings::bMarkWithIcon.GetValue() && !WrapRows(a_view) && notYours >= count) {
+			// Not a SkyUI-style list: fall back on the screen's own stolen icon and colour.
 			a_object->SetMember("isStealing", RE::GFxValue(true));
 		}
 		// The words stay for a mixed stack (the count matters there), or for every row if asked.

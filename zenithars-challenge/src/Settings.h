@@ -25,7 +25,7 @@ namespace Settings
 	inline REX::INI::Bool bShowNotYoursMessages{ "Messages", "bShowNotYoursMessages", false };
 	// Mark rows in the inventory and barter screens that hold items which are not yours.
 	inline REX::INI::Bool bMarkInventory{ "Messages", "bMarkInventory", true };
-	// How: the screen's stolen icon and colour, and/or the words "[not yours]" after the name.
+	// How: a struck-through anvil after the name and a dull red name, and/or the words "[not yours]" after the name.
 	inline REX::INI::Bool bMarkWithIcon{ "Messages", "bMarkWithIcon", true };
 	inline REX::INI::Bool bMarkWithText{ "Messages", "bMarkWithText", false };
 

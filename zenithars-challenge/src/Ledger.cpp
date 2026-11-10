@@ -310,6 +310,14 @@ void Ledger::SetChoicePending(bool a_pending)
 	_choicePending = a_pending;
 }
 
+std::int32_t Ledger::Promote(RE::FormID a_form, std::int32_t a_count)
+{
+	std::scoped_lock lock(_lock);
+	const auto       moved = TakeUnearned(a_form, a_count);
+	GiveEarned(kPlayer, a_form, moved);
+	return moved;
+}
+
 void Ledger::EarnPack(RE::FormID a_form, std::int32_t a_actual)
 {
 	std::scoped_lock lock(_lock);

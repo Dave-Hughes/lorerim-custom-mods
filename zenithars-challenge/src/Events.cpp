@@ -39,7 +39,22 @@ namespace
 		RE::FormID        ref{ 0 };
 		RE::FormID        base{ 0 };
 		Clock::time_point when{};
+		bool              purse{ false };  // the thing activated was a coin purse
 	};
+
+	// Quest rewards. A reward is handed over by a script, so it arrives "from nowhere", within a
+	// few seconds of the quest moving to a new stage, on either side of it. Arrivals are kept that
+	// long so a stage change that follows them can still claim them.
+	struct Arrival
+	{
+		RE::FormID        form{ 0 };
+		std::int32_t      count{ 0 };
+		Clock::time_point when{};
+	};
+	std::mutex           g_questLock;
+	Clock::time_point    g_lastStage{};
+	std::vector<Arrival> g_arrivals;
+	constexpr auto       kRewardWindow = 4s;
 	std::mutex g_activatedLock;
 	Activated  g_activated;
 	constexpr auto kPickupWindow = 3s;
@@ -222,6 +237,7 @@ void Events::Register()
 		holder->AddEventSink<RE::TESActivateEvent>(GetSingleton());
 		holder->AddEventSink<RE::TESEquipEvent>(GetSingleton());
 		holder->AddEventSink<RE::TESCellAttachDetachEvent>(GetSingleton());
+		holder->AddEventSink<RE::TESQuestStageEvent>(GetSingleton());
 		if (const auto ui = RE::UI::GetSingleton()) {
 			ui->AddEventSink<RE::MenuOpenCloseEvent>(GetSingleton());
 		}
@@ -588,6 +604,29 @@ void Events::OnAddedToPack(const RE::TESContainerChangedEvent& a_event, RE::TESF
 	}
 
 	ledger.AddUnearned(form, count);
+	const auto options = ledger.Options();
+	const auto now = Clock::now();
+
+	// A gem out of a coin purse, if the player allowed those.
+	if (IsGem(a_item) && (options & Option::kCoinPurseGems) != 0) {
+		std::scoped_lock lock(g_activatedLock);
+		if (g_activated.purse && now - g_activated.when <= kPickupWindow) {
+			ledger.Promote(form, count);
+			logger::debug("pack +{} {} [{:08X}] from a coin purse: yours (allowed)", count, ItemName(a_item), form);
+			return;
+		}
+	}
+	// A quest reward, if the player allowed those.
+	if ((options & Option::kQuestRewards) != 0) {
+		std::scoped_lock lock(g_questLock);
+		if (now - g_lastStage <= kRewardWindow) {
+			ledger.Promote(form, count);
+			logger::debug("pack +{} {} [{:08X}] as a quest moved on: yours (allowed quest reward)", count, ItemName(a_item), form);
+			return;
+		}
+		std::erase_if(g_arrivals, [now](const Arrival& a_entry) { return now - a_entry.when > kRewardWindow; });
+		g_arrivals.push_back({ form, count, now });
+	}
 	logger::debug("pack +{} {} [{:08X}] from nowhere: not yours", count, ItemName(a_item), form);
 	ShowNotYours(a_item, count);
 }
@@ -756,7 +795,7 @@ RE::BSEventNotifyControl Events::ProcessEvent(const RE::TESActivateEvent* a_even
 		return RE::BSEventNotifyControl::kContinue;
 	}
 	std::scoped_lock lock(g_activatedLock);
-	g_activated = { a_event->objectActivated->GetFormID(), base->GetFormID(), Clock::now() };
+	g_activated = { a_event->objectActivated->GetFormID(), base->GetFormID(), Clock::now(), ContainsNoCase(ItemName(base), "purse"sv) };
 	return RE::BSEventNotifyControl::kContinue;
 }
 
@@ -853,6 +892,33 @@ RE::BSEventNotifyControl Events::ProcessEvent(const RE::TESCellAttachDetachEvent
 		a_event->reference->SetActivationBlocked(false);
 	} else if (Judging()) {
 		a_event->reference->SetActivationBlocked(true);
+	}
+	return RE::BSEventNotifyControl::kContinue;
+}
+
+RE::BSEventNotifyControl Events::ProcessEvent(const RE::TESQuestStageEvent* a_event, RE::BSTEventSource<RE::TESQuestStageEvent>*)
+{
+	if (!a_event) {
+		return RE::BSEventNotifyControl::kContinue;
+	}
+	std::vector<Arrival> claimed;
+	{
+		std::scoped_lock lock(g_questLock);
+		const auto       now = Clock::now();
+		g_lastStage = now;
+		for (const auto& arrival : g_arrivals) {
+			if (now - arrival.when <= kRewardWindow) {
+				claimed.push_back(arrival);
+			}
+		}
+		g_arrivals.clear();
+	}
+	if ((Ledger::Get().Options() & Option::kQuestRewards) != 0) {
+		for (const auto& arrival : claimed) {
+			const auto moved = Ledger::Get().Promote(arrival.form, arrival.count);
+			logger::debug("quest {:08X} moved to stage {}: {} x{} just handed over counts as yours (allowed quest reward)", a_event->formID, a_event->stage,
+				ItemName(RE::TESForm::LookupByID(arrival.form)), moved);
+		}
 	}
 	return RE::BSEventNotifyControl::kContinue;
 }

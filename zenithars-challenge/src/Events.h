@@ -10,7 +10,8 @@ class Events :
 	public RE::BSTEventSink<RE::TESActivateEvent>,
 	public RE::BSTEventSink<RE::TESEquipEvent>,
 	public RE::BSTEventSink<RE::MenuOpenCloseEvent>,
-	public RE::BSTEventSink<RE::TESCellAttachDetachEvent>
+	public RE::BSTEventSink<RE::TESCellAttachDetachEvent>,
+	public RE::BSTEventSink<RE::TESQuestStageEvent>
 {
 public:
 	static Events* GetSingleton();
@@ -43,6 +44,7 @@ public:
 	RE::BSEventNotifyControl ProcessEvent(const RE::TESEquipEvent* a_event, RE::BSTEventSource<RE::TESEquipEvent>* a_source) override;
 	RE::BSEventNotifyControl ProcessEvent(const RE::MenuOpenCloseEvent* a_event, RE::BSTEventSource<RE::MenuOpenCloseEvent>* a_source) override;
 	RE::BSEventNotifyControl ProcessEvent(const RE::TESCellAttachDetachEvent* a_event, RE::BSTEventSource<RE::TESCellAttachDetachEvent>* a_source) override;
+	RE::BSEventNotifyControl ProcessEvent(const RE::TESQuestStageEvent* a_event, RE::BSTEventSource<RE::TESQuestStageEvent>* a_source) override;
 
 private:
 	void OnAddedToPack(const RE::TESContainerChangedEvent& a_event, RE::TESForm* a_item);
