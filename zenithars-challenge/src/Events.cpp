@@ -395,11 +395,24 @@ namespace
 		}
 	}
 
-	// Takes off every worn or held copy of gear that is not the player's own (or, for a mixed stack,
-	// every copy of it). Names each worn copy and its hand outright: a second click puts a weapon in
-	// the other hand, which a plain "unequip this item" does not reach. Main thread only.
+	// Gear refused since an item menu was last closed. Only these are swept: gear that was already
+	// on the character before the mod looked (an old save, a start's kit) is left where it is.
+	std::mutex                     g_refusedLock;
+	std::unordered_set<RE::FormID> g_refused;
+
+	// Takes off every worn or held copy of the gear just refused. Names each worn copy and its hand
+	// outright: a second click puts a weapon in the other hand, which a plain "unequip this item"
+	// does not reach. Main thread only.
 	void SweepGearNow()
 	{
+		std::unordered_set<RE::FormID> refused;
+		{
+			std::scoped_lock lock(g_refusedLock);
+			refused = g_refused;
+		}
+		if (refused.empty()) {
+			return;
+		}
 		const auto player = RE::PlayerCharacter::GetSingleton();
 		const auto manager = RE::ActorEquipManager::GetSingleton();
 		const auto changes = player ? player->GetInventoryChanges() : nullptr;
@@ -419,7 +432,7 @@ namespace
 				continue;
 			}
 			const auto form = entry->object->GetFormID();
-			if (ledger.Earned(Ledger::kPlayer, form) > 0 && ledger.UnearnedInPack(form) <= 0) {
+			if (!refused.contains(form) || (ledger.Earned(Ledger::kPlayer, form) > 0 && ledger.UnearnedInPack(form) <= 0)) {
 				continue;
 			}
 			for (const auto list : *entry->extraLists) {
@@ -446,13 +459,23 @@ namespace
 	}
 
 	// Now, and again on the next two frames: the game finishes an equip after reporting it.
-	void TakeOff(RE::FormID)
+	void TakeOff(RE::FormID a_form, bool a_forgetAfter = false)
 	{
-		SKSE::GetTaskInterface()->AddTask([]() {
+		if (a_form != 0) {
+			std::scoped_lock lock(g_refusedLock);
+			g_refused.insert(a_form);
+		}
+		SKSE::GetTaskInterface()->AddTask([a_forgetAfter]() {
 			SweepGearNow();
 			SKSE::GetTaskInterface()->AddTask([]() {
 				SweepGearNow();
-				SKSE::GetTaskInterface()->AddTask([]() { SweepGearNow(); });
+				SKSE::GetTaskInterface()->AddTask([a_forgetAfter]() {
+					SweepGearNow();
+					if (a_forgetAfter) {
+						std::scoped_lock lock(g_refusedLock);
+						g_refused.clear();
+					}
+				});
 			});
 		});
 	}
@@ -989,7 +1012,7 @@ RE::BSEventNotifyControl Events::ProcessEvent(const RE::MenuOpenCloseEvent* a_ev
 	if (a_event && !a_event->opening && Judging() &&
 		(a_event->menuName == RE::InventoryMenu::MENU_NAME || a_event->menuName == RE::MagicMenu::MENU_NAME || a_event->menuName == RE::FavoritesMenu::MENU_NAME)) {
 		ClearMagicHands();
-		TakeOff(0);
+		TakeOff(0, true);
 	}
 	return RE::BSEventNotifyControl::kContinue;
 }
