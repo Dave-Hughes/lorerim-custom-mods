@@ -6,6 +6,10 @@
 
 namespace
 {
+	// The first rows seen are written to the log, to show what the screen hands over.
+	constexpr int    kMaxLogged = 40;
+	std::atomic_int  g_logged{ 0 };
+
 	// Called by SKSE for every row the game builds for an item list.
 	void OnInventoryEntry(RE::GFxMovieView* a_view, RE::GFxValue* a_object, RE::InventoryEntryData* a_item)
 	{
@@ -13,9 +17,18 @@ namespace
 			return;
 		}
 		// Only the player's own inventory screen: there every row is the player's. Container and
-		// barter screens list both sides and the row does not say which side it is on.
-		const auto ui = RE::UI::GetSingleton();
-		if (!ui || !ui->IsMenuOpen(RE::InventoryMenu::MENU_NAME)) {
+		// barter screens list both sides and the row does not say which side it is on. The screen is
+		// told apart by its file name, because rows are first built before the menu counts as open.
+		const auto def = a_view->GetMovieDef();
+		const auto url = def ? def->GetFileURL() : nullptr;
+		if (g_logged < kMaxLogged) {
+			++g_logged;
+			RE::GFxValue text;
+			const auto   hasText = a_object->GetMember("text", &text) && text.IsString();
+			logger::debug("inventory row: screen \"{}\" item [{:08X}] text {}", url ? url : "?", a_item->object ? a_item->object->GetFormID() : 0,
+				hasText ? text.GetString() : "(none)");
+		}
+		if (!url || !Rules::ContainsNoCase(url, "inventorymenu"sv)) {
 			return;
 		}
 		const RE::TESBoundObject* item = a_item->object;  // not GetObject(): windows.h defines that name as a macro
