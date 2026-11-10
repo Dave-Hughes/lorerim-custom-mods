@@ -265,9 +265,9 @@ namespace
 	{
 		RE::MessageBoxMenu::Create(
 			"Zenithar's Challenge\n\n"
-			"Craft everything you use. Gear, food and potions you did not make cannot be used, and what is not yours cannot be sold. No spells, scrolls or staves.\n\n"
-			"If you take it, you next choose which of six optional rules to allow. Allowing none is the challenge as written; each one you allow makes it a little easier.\n\n"
-			"This cannot be changed later.",
+			"You can only use what you craft. Gear, food and potions you did not make cannot be used or sold.\n\n"
+			"You cannot use magic, scrolls, or staves.\n\n"
+			"Next, turn on optional rules to make the challenge easier.",
 			&OnIntroButton, 0, 4, 10, "Take the challenge", "Standard playthrough");
 	}
 
