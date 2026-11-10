@@ -1,8 +1,8 @@
 # Zenithar's Challenge
 
 A referee for Zenithar's Challenge in the LoreRim modlist (5.0.4.8): craft everything you use. The
-challenge was written by Great Mighty p1ss on the LoreRim Discord. One SKSE plugin, no ESP, no
-scripts, and no interface files changed.
+challenge was written by Great Mighty p1ss on the LoreRim Discord. One SKSE plugin and one small
+light ESP (two spells, written by `tools/make_esp.py`); no scripts, and no interface files changed.
 
 **Status: in play-testing.** Not released. The site for it is the LoreRim Planner's `/challenge` pages.
 
@@ -28,7 +28,8 @@ A new character is asked once, when LoreRim's own setup is over: **Zenithar's Ch
 | Took hides, meat or parts from an animal you killed | hunted |
 
 Everything else that enters your pack is not yours, unless one of the six rules you allowed says
-it is. Skyrim merges looted and made copies of one item into a single stack, so the mod keeps
+it is. The clothes a new character starts in are theirs either way; a start's weapons, armor,
+jewelry and other gear are not, unless Starting Items was allowed. Skyrim merges looted and made copies of one item into a single stack, so the mod keeps
 counts rather than marking items. Your copies are followed into chests and back, onto the ground
 and back, and out of your bow and back. Tempering or enchanting an item does not change whose it is.
 
@@ -54,6 +55,8 @@ run as a broken rule.
   says how many, e.g. `Iron Arrow [3 not yours]`.
 - "Not made by you." on the item card.
 - `Zenithar: Iron Dagger x1 crafted` when something is counted, and a line when something is refused.
+- "Zenithar's Challenge" under Active Effects while the challenge is on, and the lesser power
+  "Zenithar's Ledger", which shows the run so far.
 
 ## The run file
 

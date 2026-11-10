@@ -1046,3 +1046,25 @@ std::int32_t Events::NotYoursIfTaken(RE::FormID a_holder, const RE::TESForm* a_i
 	}
 	return a_count - std::min(a_count, Ledger::Get().Earned(a_holder, a_item->GetFormID()));
 }
+
+void Events::KeepStartingClothes()
+{
+	const auto player = RE::PlayerCharacter::GetSingleton();
+	if (!player) {
+		return;
+	}
+	std::int32_t kinds = 0;
+	for (const auto& [object, data] : player->GetInventory()) {
+		const auto armor = object ? object->As<RE::TESObjectARMO>() : nullptr;
+		if (!armor || armor->IsLightArmor() || armor->IsHeavyArmor() || (armor->GetFormFlags() & 0x4) != 0) {
+			continue;
+		}
+		if (HasKeyword(armor, "ArmorJewelry"sv) || HasKeyword(armor, "VendorItemJewelry"sv)) {
+			continue;
+		}
+		Ledger::Get().EarnPack(armor->GetFormID(), data.first);
+		logger::debug("starting clothes: {} [{:08X}] is the player's own", ItemName(armor), armor->GetFormID());
+		++kinds;
+	}
+	logger::info("starting clothes kept: {} kinds of clothing", kinds);
+}

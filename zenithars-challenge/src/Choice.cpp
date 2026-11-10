@@ -3,6 +3,7 @@
 #include "Events.h"
 #include "Ledger.h"
 #include "Settings.h"
+#include "Status.h"
 
 #include <filesystem>
 
@@ -176,11 +177,16 @@ namespace
 		Events::TakeStock();
 		if ((a_options & Option::kStartingItems) != 0) {
 			Events::KeepPack();
+		} else if (a_mode == Mode::kOath) {
+			// Nobody has to walk into Skyrim naked: the clothes on the character's back are theirs.
+			// A start's weapons, armor, jewelry and other gear are not.
+			Events::KeepStartingClothes();
 		}
+		Status::Sync();
 		g_asking = false;
 		logger::info("CHOSEN: {} options {:#04x}", a_mode == Mode::kOath ? "the challenge" : "standard playthrough", a_options);
 		RE::DebugMessageBox(a_mode == Mode::kOath ?
-				"Your oath is sworn.\n\nThe game will hold you to the rules of Zenithar's Challenge." :
+				"Your oath is sworn.\n\nThe game will hold you to the rules of Zenithar's Challenge. Use the power Zenithar's Ledger to look over your run." :
 				"A standard playthrough.\n\nZenithar's Challenge is off for this character.");
 	}
 
@@ -191,7 +197,7 @@ namespace
 			{ "Looted Soul Gems", "Ticked: empty soul gems you take from chests, bodies and shops count as yours.\n\nUnticked: only soul gems you craft count.", Picture("LootedSoulGems"sv) },
 			{ "Coin Purse Gems", "Ticked: gems that come out of coin purses count as yours.\n\nUnticked: they do not, so toss them.", Picture("CoinPurseGems"sv) },
 			{ "Quest Rewards", "Ticked: items handed to you as quest rewards count as yours.\n\nUnticked: only the septims do.", Picture("QuestRewards"sv) },
-			{ "Starting Items", "Ticked: everything you are carrying right now counts as yours.\n\nUnticked: nothing you start with counts.", Picture("StartingItems"sv) },
+			{ "Starting Items", "Ticked: everything you are carrying right now counts as yours.\n\nUnticked: only the clothes you start in count. Your start's weapons, armor and other gear do not.", Picture("StartingItems"sv) },
 			{ "Others' Kills", "Ticked: hides and meat from any dead animal count as hunted.\n\nUnticked: only animals you killed yourself count.", Picture("OthersKills"sv) },
 		};
 		OpenWindow(std::move(cards), 6, 0, [a_mode](std::vector<int> a_picked) {

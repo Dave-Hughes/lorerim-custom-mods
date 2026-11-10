@@ -5,6 +5,7 @@
 #include "RunFile.h"
 #include "Settings.h"
 #include "Stats.h"
+#include "Status.h"
 
 namespace
 {
@@ -18,6 +19,7 @@ namespace
 			Events::InstallHooks();
 			Choice::Register();
 			Stats::Start();
+			Status::OnDataLoaded();
 			InventoryMarks::OnDataLoaded();
 			break;
 		case SKSE::MessagingInterface::kSaveGame:
@@ -47,6 +49,7 @@ namespace
 						Events::TakeStock();
 						Events::SetArmed(true);
 						Stats::Refresh();
+						Status::Sync();
 						if (loaded) {
 							Choice::OnLoaded(turn);
 						} else {

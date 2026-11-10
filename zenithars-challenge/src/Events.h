@@ -28,6 +28,8 @@ public:
 	// not yours. Run once the game has finished loading. Main thread only.
 	static void TakeStock();
 
+	// The clothes a new character starts in become the player's own (not jewelry, not armor, not weapons). Main thread only.
+	static void KeepStartingClothes();
 	// The "keep starting items" choice: everything in the pack right now becomes the player's own. Main thread only.
 	static void KeepPack();
 
