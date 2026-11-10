@@ -18,7 +18,7 @@ namespace
 		if (!ui || !ui->IsMenuOpen(RE::InventoryMenu::MENU_NAME)) {
 			return;
 		}
-		const auto item = a_item->GetObject();
+		const RE::TESBoundObject* item = a_item->object;  // not GetObject(): windows.h defines that name as a macro
 		if (!item || !Rules::MustBeOwn(item)) {
 			return;
 		}
