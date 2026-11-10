@@ -206,6 +206,7 @@ namespace
 			return;
 		}
 		const auto ownScreen = Rules::ContainsNoCase(url, "inventorymenu"sv);
+		auto       holder = Ledger::kPlayer;
 		// A merchant's or a chest's screen lists both sides. The game puts the two sides in different
 		// bits of the row's filterFlag: the low ten are the player's side.
 		if (!ownScreen) {
@@ -220,7 +221,17 @@ namespace
 				logger::debug("row on \"{}\": item [{:08X}] filterFlag {:#x}", url, a_item->object ? a_item->object->GetFormID() : 0, bits);
 			}
 			if ((bits & 0x3FFu) == 0) {
-				return;
+				// The other side. A merchant's wares are never yours, so marking them all says nothing;
+				// a chest's contents are worth marking, because your own work may be stored in it.
+				// A body is left alone: what you take from an animal you killed becomes yours as you take it.
+				if (!Rules::ContainsNoCase(url, "containermenu"sv)) {
+					return;
+				}
+				const auto target = RE::TESObjectREFR::LookupByHandle(RE::ContainerMenu::GetTargetRefHandle());
+				if (!target || target->Is(RE::FormType::ActorCharacter)) {
+					return;
+				}
+				holder = target->GetFormID();
 			}
 		}
 		const RE::TESBoundObject* item = a_item->object;  // not GetObject(): windows.h defines that name as a macro
@@ -233,7 +244,7 @@ namespace
 		if (a_object->GetMember("count", &countValue) && countValue.IsNumber()) {
 			count = static_cast<std::int32_t>(countValue.GetNumber());
 		}
-		const auto earned = Ledger::Get().Earned(Ledger::kPlayer, item->GetFormID());
+		const auto earned = Ledger::Get().Earned(holder, item->GetFormID());
 		const auto notYours = count - std::min(count, earned);
 		if (notYours <= 0) {
 			return;
