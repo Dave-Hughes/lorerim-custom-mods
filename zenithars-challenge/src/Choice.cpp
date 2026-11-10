@@ -4,6 +4,8 @@
 #include "Ledger.h"
 #include "Settings.h"
 
+#include <filesystem>
+
 namespace
 {
 	struct Card
@@ -18,8 +20,19 @@ namespace
 	constexpr auto kMenu = "CustomMenu"sv;
 	constexpr auto kSwf = "b612_traitsmenut"sv;
 	constexpr auto kCloseEvent = "b612_TraitsMenu_Close"sv;
-	// Borrowed until the mod has its own pictures.
-	constexpr auto kPicture = "TraitPics/LoreTraits_SelfTaughtAb.dds"sv;
+	// A card's own picture is Interface/TraitPics/Zenithar_<name>.dds. Until that file exists the
+	// card borrows one of LoreRim's trait pictures, so artwork can be dropped in without a new build.
+	constexpr auto kBorrowed = "TraitPics/LoreTraits_SelfTaughtAb.dds"sv;
+
+	[[nodiscard]] std::string Picture(std::string_view a_name)
+	{
+		const auto      own = std::format("TraitPics/Zenithar_{}.dds", a_name);
+		std::error_code error;
+		if (std::filesystem::exists(std::filesystem::path("Data/Interface") / own, error)) {
+			return own;
+		}
+		return std::string(kBorrowed);
+	}
 
 	std::atomic_uint32_t g_turn{ 0 };
 	std::atomic_bool     g_asking{ false };
@@ -174,12 +187,12 @@ namespace
 	void AskOptions(Mode a_mode)
 	{
 		std::vector<Card> cards{
-			{ "Looted Gems", "Ticked: gems you take from chests, bodies and shops count as yours.\n\nUnticked: only gems that drop when you mine a vein count.", std::string(kPicture) },
-			{ "Looted Soul Gems", "Ticked: empty soul gems you take from chests, bodies and shops count as yours.\n\nUnticked: only soul gems you craft count.", std::string(kPicture) },
-			{ "Coin Purse Gems", "Ticked: gems that come out of coin purses count as yours.\n\nUnticked: they do not, so toss them.", std::string(kPicture) },
-			{ "Quest Rewards", "Ticked: items handed to you as quest rewards count as yours.\n\nUnticked: only the septims do.", std::string(kPicture) },
-			{ "Starting Items", "Ticked: everything you are carrying right now counts as yours.\n\nUnticked: nothing you start with counts.", std::string(kPicture) },
-			{ "Others' Kills", "Ticked: hides and meat from any dead animal count as hunted.\n\nUnticked: only animals you killed yourself count.", std::string(kPicture) },
+			{ "Looted Gems", "Ticked: gems you take from chests, bodies and shops count as yours.\n\nUnticked: only gems that drop when you mine a vein count.", Picture("LootedGems"sv) },
+			{ "Looted Soul Gems", "Ticked: empty soul gems you take from chests, bodies and shops count as yours.\n\nUnticked: only soul gems you craft count.", Picture("LootedSoulGems"sv) },
+			{ "Coin Purse Gems", "Ticked: gems that come out of coin purses count as yours.\n\nUnticked: they do not, so toss them.", Picture("CoinPurseGems"sv) },
+			{ "Quest Rewards", "Ticked: items handed to you as quest rewards count as yours.\n\nUnticked: only the septims do.", Picture("QuestRewards"sv) },
+			{ "Starting Items", "Ticked: everything you are carrying right now counts as yours.\n\nUnticked: nothing you start with counts.", Picture("StartingItems"sv) },
+			{ "Others' Kills", "Ticked: hides and meat from any dead animal count as hunted.\n\nUnticked: only animals you killed yourself count.", Picture("OthersKills"sv) },
 		};
 		OpenWindow(std::move(cards), 6, 0, [a_mode](std::vector<int> a_picked) {
 			std::uint32_t options = 0;
@@ -195,8 +208,8 @@ namespace
 	void AskMode()
 	{
 		std::vector<Card> cards{
-			{ "Zenithar's Challenge", "Craft everything you use, and the game holds you to it.\n\nGear, food and potions you did not make cannot be used. Spells, scrolls and staves cannot be used. What is not yours cannot be sold.\n\nThis cannot be changed later.", std::string(kPicture) },
-			{ "Standard Playthrough", "Play LoreRim as usual.\n\nThe challenge is off for this character and nothing is stopped.\n\nThis cannot be changed later.", std::string(kPicture) },
+			{ "Zenithar's Challenge", "Craft everything you use, and the game holds you to it.\n\nGear, food and potions you did not make cannot be used. Spells, scrolls and staves cannot be used. What is not yours cannot be sold.\n\nThis cannot be changed later.", Picture("Challenge"sv) },
+			{ "Standard Playthrough", "Play LoreRim as usual.\n\nThe challenge is off for this character and nothing is stopped.\n\nThis cannot be changed later.", Picture("Standard"sv) },
 		};
 		OpenWindow(std::move(cards), 1, 1, [](std::vector<int> a_picked) {
 			if (a_picked.empty()) {
