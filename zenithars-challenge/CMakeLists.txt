@@ -32,12 +32,16 @@ endif()
 set(SOURCES
 	src/main.cpp
 	src/Events.cpp
+	src/InventoryMarks.cpp
+	src/Rules.cpp
 	src/Ledger.cpp
 	src/Settings.cpp
 )
 set(HEADERS
 	src/PCH.h
 	src/Events.h
+	src/InventoryMarks.h
+	src/Rules.h
 	src/Ledger.h
 	src/Settings.h
 )

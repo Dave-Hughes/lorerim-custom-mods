@@ -1,4 +1,5 @@
 #include "Events.h"
+#include "InventoryMarks.h"
 #include "Ledger.h"
 #include "Settings.h"
 
@@ -57,6 +58,7 @@ SKSE_PLUGIN_LOAD(const SKSE::LoadInterface* a_skse)
 
 	Settings::Load();
 	Ledger::RegisterSerialization();
+	InventoryMarks::Register();
 
 	if (!SKSE::GetMessagingInterface()->RegisterListener(MessageHandler)) {
 		logger::critical("failed to register messaging listener");

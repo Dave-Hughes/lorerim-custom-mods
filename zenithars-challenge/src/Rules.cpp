@@ -1,0 +1,121 @@
+#include "Rules.h"
+
+#include "Settings.h"
+
+namespace Rules
+{
+	bool HasKeyword(const RE::TESForm* a_item, std::string_view a_editorID)
+	{
+		const auto keywords = a_item ? a_item->As<RE::BGSKeywordForm>() : nullptr;
+		return keywords && keywords->HasKeywordString(a_editorID);
+	}
+
+	bool IsOreOrGem(const RE::TESForm* a_item)
+	{
+		return HasKeyword(a_item, "VendorItemOreIngot"sv) || HasKeyword(a_item, "VendorItemGem"sv);
+	}
+
+	bool IsGear(const RE::TESForm* a_item)
+	{
+		return a_item && (a_item->Is(RE::FormType::Weapon) || a_item->Is(RE::FormType::Armor) || a_item->Is(RE::FormType::Ammo));
+	}
+
+	std::string ItemName(const RE::TESForm* a_item)
+	{
+		const auto name = a_item ? a_item->GetName() : nullptr;
+		if (name && name[0] != '\0') {
+			return name;
+		}
+		return std::format("item {:08X}", a_item ? a_item->GetFormID() : 0);
+	}
+
+	bool ContainsNoCase(std::string_view a_text, std::string_view a_part)
+	{
+		const auto it = std::search(a_text.begin(), a_text.end(), a_part.begin(), a_part.end(), [](char a_lhs, char a_rhs) {
+			return std::tolower(static_cast<unsigned char>(a_lhs)) == std::tolower(static_cast<unsigned char>(a_rhs));
+		});
+		return it != a_text.end();
+	}
+
+	bool EqualsNoCase(std::string_view a_lhs, std::string_view a_rhs)
+	{
+		return a_lhs.size() == a_rhs.size() && ContainsNoCase(a_lhs, a_rhs);
+	}
+
+	// The plugin that first defined the item ("" for items made while playing, such as brewed potions).
+	std::string_view DefiningPlugin(const RE::TESForm* a_item)
+	{
+		const auto file = a_item ? a_item->GetFile(0) : nullptr;
+		return file ? file->GetFilename() : ""sv;
+	}
+
+	// Water and provisions: may be consumed whoever made them.
+	bool IsFromAllowedPlugin(const RE::TESForm* a_item)
+	{
+		const auto plugin = DefiningPlugin(a_item);
+		if (plugin.empty()) {
+			return false;
+		}
+		const auto       list = Settings::sAllowedPlugins.GetValue();
+		std::string_view rest{ list };
+		while (!rest.empty()) {
+			const auto bar = rest.find('|');
+			auto       name = rest.substr(0, bar);
+			rest = bar == std::string_view::npos ? ""sv : rest.substr(bar + 1);
+			while (!name.empty() && name.front() == ' ') {
+				name.remove_prefix(1);
+			}
+			while (!name.empty() && name.back() == ' ') {
+				name.remove_suffix(1);
+			}
+			if (!name.empty() && EqualsNoCase(plugin, name)) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	bool IsMissive(const RE::TESForm* a_item)
+	{
+		return a_item && a_item->Is(RE::FormType::Book) && ContainsNoCase(DefiningPlugin(a_item), "missive"sv);
+	}
+
+	// The challenge lets the player get a pickaxe however they like; the woodcutter's axe is treated the same.
+	bool IsTool(const RE::TESForm* a_item)
+	{
+		const auto name = ItemName(a_item);
+		return ContainsNoCase(name, "pickaxe"sv) || ContainsNoCase(name, "woodcutter"sv);
+	}
+
+	// Raw materials the challenge says the player must gather: ore and ingots, firewood, hides and leather.
+	bool IsGatheredMaterial(const RE::TESForm* a_item)
+	{
+		return a_item && (a_item->GetFormID() == kFirewood || HasKeyword(a_item, "VendorItemOreIngot"sv) ||
+							 HasKeyword(a_item, "VendorItemAnimalHide"sv));
+	}
+
+	bool MustBeOwnGear(const RE::TESForm* a_item)
+	{
+		if (!a_item) {
+			return false;
+		}
+		if (const auto weapon = a_item->As<RE::TESObjectWEAP>()) {
+			return !weapon->IsStaff() && !IsTool(a_item);
+		}
+		if (const auto armor = a_item->As<RE::TESObjectARMO>()) {
+			return armor->IsLightArmor() || armor->IsHeavyArmor();
+		}
+		return a_item->Is(RE::FormType::Ammo);
+	}
+
+	bool MustBeOwn(const RE::TESForm* a_item)
+	{
+		if (!a_item) {
+			return false;
+		}
+		if (a_item->Is(RE::FormType::AlchemyItem)) {
+			return !IsFromAllowedPlugin(a_item);
+		}
+		return MustBeOwnGear(a_item) || IsGatheredMaterial(a_item);
+	}
+}

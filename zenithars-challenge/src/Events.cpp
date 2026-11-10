@@ -1,13 +1,15 @@
 #include "Events.h"
 
 #include "Ledger.h"
+#include "Rules.h"
 #include "Settings.h"
 
 namespace
 {
+	using namespace Rules;
+
 	constexpr RE::FormID kGold = 0x0000000F;
 	constexpr RE::FormID kLockpick = 0x0000000A;
-	constexpr RE::FormID kFirewood = 0x0006F993;  // Skyrim.esm Firewood01
 	constexpr RE::FormID kUnarmed = 0x000001F4;   // Skyrim.esm Unarmed (fists)
 
 	// The game does not say which reference a dropped item became, so earned copies lying on the
@@ -96,22 +98,6 @@ namespace
 		}
 	}
 
-	[[nodiscard]] bool HasKeyword(const RE::TESForm* a_item, std::string_view a_editorID)
-	{
-		const auto keywords = a_item ? a_item->As<RE::BGSKeywordForm>() : nullptr;
-		return keywords && keywords->HasKeywordString(a_editorID);
-	}
-
-	[[nodiscard]] bool IsOreOrGem(const RE::TESForm* a_item)
-	{
-		return HasKeyword(a_item, "VendorItemOreIngot"sv) || HasKeyword(a_item, "VendorItemGem"sv);
-	}
-
-	[[nodiscard]] bool IsGear(const RE::TESForm* a_item)
-	{
-		return a_item && (a_item->Is(RE::FormType::Weapon) || a_item->Is(RE::FormType::Armor) || a_item->Is(RE::FormType::Ammo));
-	}
-
 	// Items the challenge says must be the player's own to use: worth a "not yours" line.
 	[[nodiscard]] bool IsRestricted(const RE::TESForm* a_item)
 	{
@@ -143,15 +129,6 @@ namespace
 		return Settings::bCountOthersKills.GetValue() || Ledger::Get().WasKilledByPlayer(a_container);
 	}
 
-	[[nodiscard]] std::string ItemName(const RE::TESForm* a_item)
-	{
-		const auto name = a_item ? a_item->GetName() : nullptr;
-		if (name && name[0] != '\0') {
-			return name;
-		}
-		return std::format("item {:08X}", a_item ? a_item->GetFormID() : 0);
-	}
-
 	void ShowMade(const RE::TESForm* a_item, std::int32_t a_count, Source a_source)
 	{
 		if (Settings::bShowMadeMessages.GetValue()) {
@@ -174,71 +151,6 @@ namespace
 		ShowMade(a_item, a_count, a_source);
 		logger::debug("pack +{} {} [{:08X}] {} -> yours {}", a_count, ItemName(a_item), a_item->GetFormID(), SourceVerb(a_source),
 			Ledger::Get().Earned(Ledger::kPlayer, a_item->GetFormID()));
-	}
-
-	[[nodiscard]] bool ContainsNoCase(std::string_view a_text, std::string_view a_part)
-	{
-		const auto it = std::search(a_text.begin(), a_text.end(), a_part.begin(), a_part.end(), [](char a_lhs, char a_rhs) {
-			return std::tolower(static_cast<unsigned char>(a_lhs)) == std::tolower(static_cast<unsigned char>(a_rhs));
-		});
-		return it != a_text.end();
-	}
-
-	[[nodiscard]] bool EqualsNoCase(std::string_view a_lhs, std::string_view a_rhs)
-	{
-		return a_lhs.size() == a_rhs.size() && ContainsNoCase(a_lhs, a_rhs);
-	}
-
-	// The plugin that first defined the item ("" for items made while playing, such as brewed potions).
-	[[nodiscard]] std::string_view DefiningPlugin(const RE::TESForm* a_item)
-	{
-		const auto file = a_item ? a_item->GetFile(0) : nullptr;
-		return file ? file->GetFilename() : ""sv;
-	}
-
-	// Water and provisions: may be consumed whoever made them.
-	[[nodiscard]] bool IsFromAllowedPlugin(const RE::TESForm* a_item)
-	{
-		const auto plugin = DefiningPlugin(a_item);
-		if (plugin.empty()) {
-			return false;
-		}
-		const auto       list = Settings::sAllowedPlugins.GetValue();
-		std::string_view rest{ list };
-		while (!rest.empty()) {
-			const auto bar = rest.find('|');
-			auto       name = rest.substr(0, bar);
-			rest = bar == std::string_view::npos ? ""sv : rest.substr(bar + 1);
-			while (!name.empty() && name.front() == ' ') {
-				name.remove_prefix(1);
-			}
-			while (!name.empty() && name.back() == ' ') {
-				name.remove_suffix(1);
-			}
-			if (!name.empty() && EqualsNoCase(plugin, name)) {
-				return true;
-			}
-		}
-		return false;
-	}
-
-	[[nodiscard]] bool IsMissive(const RE::TESForm* a_item)
-	{
-		return a_item && a_item->Is(RE::FormType::Book) && ContainsNoCase(DefiningPlugin(a_item), "missive"sv);
-	}
-
-	// The challenge lets the player get a pickaxe however they like; the woodcutter's axe is treated the same.
-	[[nodiscard]] bool IsTool(const RE::TESForm* a_item)
-	{
-		const auto name = ItemName(a_item);
-		return ContainsNoCase(name, "pickaxe"sv) || ContainsNoCase(name, "woodcutter"sv);
-	}
-
-	// Raw materials the challenge says the player must gather: ore and ingots, firewood, hides and leather.
-	[[nodiscard]] bool IsGatheredMaterial(const RE::TESForm* a_item)
-	{
-		return a_item && (a_item->GetFormID() == kFirewood || HasKeyword(a_item, "VendorItemOreIngot"sv) ||
-							 HasKeyword(a_item, "VendorItemAnimalHide"sv));
 	}
 
 	[[nodiscard]] float DaysPassed()

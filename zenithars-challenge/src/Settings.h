@@ -14,6 +14,8 @@ namespace Settings
 	inline REX::INI::Bool bShowWarnings{ "Messages", "bShowWarnings", true };
 	inline REX::INI::Bool bShowMadeMessages{ "Messages", "bShowMadeMessages", true };
 	inline REX::INI::Bool bShowNotYoursMessages{ "Messages", "bShowNotYoursMessages", false };
+	// Experiment: tag rows in the inventory screen that hold items which are not yours.
+	inline REX::INI::Bool bMarkInventory{ "Messages", "bMarkInventory", true };
 
 	// Debug
 	inline REX::INI::Bool bVerboseLog{ "Debug", "bVerboseLog", true };
