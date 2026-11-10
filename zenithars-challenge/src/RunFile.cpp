@@ -153,9 +153,10 @@ namespace
 			Quote(player ? player->GetName() : ""), Quote(race ? race->GetName() : ""), player ? player->GetLevel() : 0);
 		body += "\"mode\":\"oath\",";
 		body += std::format("\"modeChosen\":{},", snapshot.mode == Mode::kUnset ? "false" : "true");
-		body += std::format("\"options\":{{\"lootGems\":{},\"lootSoulGems\":{},\"coinPurseGems\":{},\"questRewards\":{},\"startingItems\":{},\"othersKills\":{}}},",
+		body += std::format("\"options\":{{\"lootGems\":{},\"lootSoulGems\":{},\"coinPurseGems\":{},\"questRewards\":{},\"startingItems\":{},\"othersKills\":{},\"startingClothes\":{}}},",
 			(snapshot.options & Option::kLootGems) != 0, (snapshot.options & Option::kLootSoulGems) != 0, (snapshot.options & Option::kCoinPurseGems) != 0,
-			(snapshot.options & Option::kQuestRewards) != 0, (snapshot.options & Option::kStartingItems) != 0, (snapshot.options & Option::kOthersKills) != 0);
+			(snapshot.options & Option::kQuestRewards) != 0, (snapshot.options & Option::kStartingItems) != 0, (snapshot.options & Option::kOthersKills) != 0,
+			(snapshot.options & Option::kStartingClothes) != 0);
 		body += std::format("\"daysPassed\":{:.2f},", calendar ? calendar->GetDaysPassed() : 0.0F);
 
 		// What was made, by how.

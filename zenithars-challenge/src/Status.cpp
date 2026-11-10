@@ -33,7 +33,8 @@ namespace
 		add(Option::kLootSoulGems, "looted soul gems"sv);
 		add(Option::kCoinPurseGems, "coin purse gems"sv);
 		add(Option::kQuestRewards, "quest rewards"sv);
-		add(Option::kStartingItems, "starting items"sv);
+		add(Option::kStartingItems, "starting gear"sv);
+		add(Option::kStartingClothes, "starting clothes"sv);
 		add(Option::kOthersKills, "others' kills"sv);
 
 		const auto calendar = RE::Calendar::GetSingleton();
