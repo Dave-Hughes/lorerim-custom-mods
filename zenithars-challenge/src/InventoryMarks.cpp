@@ -296,6 +296,7 @@ namespace
 	// Its rows are its own (QuickLoot.ListItemRenderer) and carry only a name and a count, so the
 	// item is found by its name in whatever the crosshair is on.
 	std::atomic<RE::FormID> g_crosshairRef{ 0 };
+	std::atomic_bool        g_lootWrappedOnce{ false };
 
 	class CrosshairSink : public RE::BSTEventSink<SKSE::CrosshairRefEvent>
 	{
@@ -307,16 +308,30 @@ namespace
 		}
 	};
 
-	[[nodiscard]] std::int32_t NotYoursInTarget(const char* a_name, std::int32_t a_count)
+	// "Iron Arrow (23)" -> "Iron Arrow": the window may give the name with its count on the end.
+	[[nodiscard]] std::string WithoutCount(std::string a_name)
+	{
+		if (!a_name.empty() && a_name.back() == ')') {
+			const auto open = a_name.rfind(" (");
+			if (open != std::string::npos && a_name.find_first_not_of("0123456789", open + 2) == a_name.size() - 1) {
+				a_name.erase(open);
+			}
+		}
+		return a_name;
+	}
+
+	[[nodiscard]] std::int32_t NotYoursInTarget(const std::string& a_name, std::int32_t a_count)
 	{
 		const auto target = RE::TESForm::LookupByID<RE::TESObjectREFR>(g_crosshairRef.load());
-		if (!target || !a_name) {
+		if (!target || a_name.empty()) {
 			return 0;
 		}
+		const auto wanted = WithoutCount(a_name);
 		for (const auto& [object, data] : target->GetInventory()) {
 			const auto& entry = data.second;
-			const auto  name = entry ? entry->GetDisplayName() : nullptr;
-			if (object && name && std::strcmp(name, a_name) == 0) {
+			const auto  shown = entry ? entry->GetDisplayName() : nullptr;
+			const auto  base = object ? object->GetName() : nullptr;
+			if (object && ((shown && Rules::EqualsNoCase(shown, wanted)) || (base && Rules::EqualsNoCase(base, wanted)))) {
 				return Events::NotYoursIfTaken(target->GetFormID(), object, std::max(1, a_count));
 			}
 		}
@@ -337,11 +352,29 @@ namespace
 			RE::GFxValue mark;
 			const auto   has = row.GetMember(kMarkName, &mark) && mark.IsDisplayObject();
 			std::int32_t notYours = 0;
+			std::string  shownName;
 			if (a_params.argCount >= 1 && a_params.args[0].IsObject() && Events::OnChallenge() && Settings::bMarkInventory.GetValue()) {
-				RE::GFxValue name;
-				if (a_params.args[0].GetMember("displayName", &name) && name.IsString()) {
-					notYours = NotYoursInTarget(name.GetString(), static_cast<std::int32_t>(Number(a_params.args[0], "count", 1.0)));
+				for (const auto member : { "displayName", "text", "name", "label" }) {
+					RE::GFxValue name;
+					if (a_params.args[0].GetMember(member, &name) && name.IsString()) {
+						shownName = name.GetString();
+						break;
+					}
 				}
+				notYours = NotYoursInTarget(shownName, static_cast<std::int32_t>(Number(a_params.args[0], "count", 1.0)));
+			}
+			// The first rows are written to the log in full, to see what the window hands over.
+			static std::atomic_int logged{ 0 };
+			if (logged < 12) {
+				++logged;
+				std::string members;
+				if (a_params.argCount >= 1 && a_params.args[0].IsObject()) {
+					a_params.args[0].VisitMembers([&members](const char* a_key, const RE::GFxValue& a_value) {
+						members += std::format(" {}={}", a_key ? a_key : "?",
+							a_value.IsString() ? a_value.GetString() : a_value.IsNumber() ? std::to_string(a_value.GetNumber()) : a_value.IsBool() ? (a_value.GetBool() ? "true" : "false") : "(object)");
+					});
+				}
+				logger::debug("quick-loot row: {} argument(s), name \"{}\", looking at {:08X}, {} not yours;{}", a_params.argCount, shownName, g_crosshairRef.load(), notYours, members);
 			}
 			if (notYours <= 0) {
 				if (has) {
@@ -383,7 +416,7 @@ namespace
 			view = ui->GetMovieView(a_menu);
 		}
 		if (!view) {
-			if (a_lastTry) {
+			if (a_lastTry && !g_lootWrappedOnce) {
 				logger::warn("quick-loot window \"{}\": no movie to wrap", a_menu);
 			}
 			return false;
@@ -410,6 +443,7 @@ namespace
 		view->CreateFunction(&wrapped, lootHandler.get());
 		proto.SetMember("setData", wrapped);
 		proto.SetMember("zenitharWrapped", RE::GFxValue(true));
+		g_lootWrappedOnce = true;
 		logger::info("quick-loot rows wrapped for the mark (\"{}\")", a_menu);
 		return true;
 	}
