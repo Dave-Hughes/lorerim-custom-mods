@@ -33,6 +33,9 @@ public:
 
 	// The mode in force: the ini override if set, else the character's own; not asked yet counts as off.
 	[[nodiscard]] static Mode CurrentMode();
+	// How many of a_count copies of an item held by someone else (a chest, a body) would not be the
+	// player's own once taken. 0 for items the rules do not care about.
+	[[nodiscard]] static std::int32_t NotYoursIfTaken(RE::FormID a_holder, const RE::TESForm* a_item, std::int32_t a_count);
 	// True when this character is playing the challenge.
 	[[nodiscard]] static bool OnChallenge() { return CurrentMode() == Mode::kOath; }
 	// Hooks that let Oath mode refuse food and potions before they are used.

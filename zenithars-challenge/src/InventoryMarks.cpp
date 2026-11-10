@@ -5,6 +5,8 @@
 #include "Rules.h"
 #include "Settings.h"
 
+#include <cstring>
+
 namespace
 {
 	// The first rows seen are written to the log, to show what the screen hands over.
@@ -147,6 +149,173 @@ namespace
 		}
 	};
 
+	// ---- the item card ----
+	// The card on the right is filled by the screen's UpdateItemCardInfo. It is wrapped on the screen
+	// itself: when the selected row is not yours, a line is added to the text the card shows under
+	// the item (its "effects"), before the card reads it.
+	class CardHandler : public RE::GFxFunctionHandler
+	{
+	public:
+		void Call(Params& a_params) override
+		{
+			if (!a_params.thisPtr) {
+				return;
+			}
+			if (a_params.argCount >= 1 && a_params.args[0].IsObject() && a_params.movie) {
+				RE::GFxValue lists;
+				RE::GFxValue list;
+				RE::GFxValue selected;
+				if (a_params.thisPtr->GetMember("inventoryLists", &lists) && lists.IsObject() && lists.GetMember("itemList", &list) && list.IsObject() &&
+					list.GetMember("selectedEntry", &selected) && selected.IsObject()) {
+					const auto notYours = static_cast<int>(Number(selected, "zenitharNotYours"));
+					if (notYours > 0) {
+						RE::GFxValue effects;
+						std::string  text;
+						if (a_params.args[0].GetMember("effects", &effects) && effects.IsString()) {
+							text = effects.GetString();
+						}
+						if (!text.empty()) {
+							text += "\n";
+						}
+						text += Flag(selected, "zenitharAll") ? "<font color='#D9907C'>Not made by you.</font>" :
+																std::format("<font color='#D9907C'>{} not made by you.</font>", notYours);
+						RE::GFxValue value;
+						a_params.movie->CreateString(&value, text.c_str());
+						a_params.args[0].SetMember("effects", value);
+					}
+				}
+			}
+			a_params.thisPtr->Invoke("zenitharCard", nullptr, a_params.args, a_params.argCount);
+		}
+	};
+
+	void WrapCard(RE::GFxMovieView* a_view)
+	{
+		static const auto cardHandler = RE::make_gptr<CardHandler>();
+		RE::GFxValue      menu;
+		if (!a_view->GetVariable(&menu, "_root.Menu_mc") || !menu.IsObject() || Flag(menu, "zenitharCardWrapped")) {
+			return;
+		}
+		RE::GFxValue original;
+		if (!menu.GetMember("UpdateItemCardInfo", &original) || !original.IsObject()) {
+			return;
+		}
+		RE::GFxValue wrapped;
+		menu.SetMember("zenitharCard", original);
+		a_view->CreateFunction(&wrapped, cardHandler.get());
+		menu.SetMember("UpdateItemCardInfo", wrapped);
+		menu.SetMember("zenitharCardWrapped", RE::GFxValue(true));
+		logger::info("item card wrapped for the not-yours line");
+	}
+
+	// ---- the quick-loot window (QuickLoot IE) ----
+	// Its rows are its own (QuickLoot.ListItemRenderer) and carry only a name and a count, so the
+	// item is found by its name in whatever the crosshair is on.
+	std::atomic<RE::FormID> g_crosshairRef{ 0 };
+
+	class CrosshairSink : public RE::BSTEventSink<SKSE::CrosshairRefEvent>
+	{
+	public:
+		RE::BSEventNotifyControl ProcessEvent(const SKSE::CrosshairRefEvent* a_event, RE::BSTEventSource<SKSE::CrosshairRefEvent>*) override
+		{
+			g_crosshairRef = a_event && a_event->crosshairRef ? a_event->crosshairRef->GetFormID() : 0;
+			return RE::BSEventNotifyControl::kContinue;
+		}
+	};
+
+	[[nodiscard]] std::int32_t NotYoursInTarget(const char* a_name, std::int32_t a_count)
+	{
+		const auto target = RE::TESForm::LookupByID<RE::TESObjectREFR>(g_crosshairRef.load());
+		if (!target || !a_name) {
+			return 0;
+		}
+		for (const auto& [object, data] : target->GetInventory()) {
+			const auto& entry = data.second;
+			const auto  name = entry ? entry->GetDisplayName() : nullptr;
+			if (object && name && std::strcmp(name, a_name) == 0) {
+				return Events::NotYoursIfTaken(target->GetFormID(), object, std::max(1, a_count));
+			}
+		}
+		return 0;
+	}
+
+	class LootRowHandler : public RE::GFxFunctionHandler
+	{
+	public:
+		void Call(Params& a_params) override
+		{
+			if (!a_params.thisPtr) {
+				return;
+			}
+			a_params.thisPtr->Invoke("zenitharSetData", nullptr, a_params.args, a_params.argCount);
+
+			auto&        row = *a_params.thisPtr;
+			RE::GFxValue mark;
+			const auto   has = row.GetMember(kMarkName, &mark) && mark.IsDisplayObject();
+			std::int32_t notYours = 0;
+			if (a_params.argCount >= 1 && a_params.args[0].IsObject() && Events::OnChallenge() && Settings::bMarkInventory.GetValue()) {
+				RE::GFxValue name;
+				if (a_params.args[0].GetMember("displayName", &name) && name.IsString()) {
+					notYours = NotYoursInTarget(name.GetString(), static_cast<std::int32_t>(Number(a_params.args[0], "count", 1.0)));
+				}
+			}
+			if (notYours <= 0) {
+				if (has) {
+					mark.SetMember("_visible", RE::GFxValue(false));
+				}
+				return;
+			}
+			RE::GFxValue field;
+			if (!row.GetMember("textField", &field) || !field.IsObject()) {
+				return;
+			}
+			field.SetMember("textColor", RE::GFxValue(static_cast<double>(kNameColour)));
+			if (!has) {
+				RE::GFxValue markName;
+				markName.SetString(kMarkName);
+				const std::array<RE::GFxValue, 2> args{ markName, RE::GFxValue(kMarkDepth) };
+				row.Invoke("createEmptyMovieClip", &mark, args.data(), args.size());
+				if (!mark.IsDisplayObject()) {
+					return;
+				}
+				DrawMark(mark);
+			}
+			const auto size = std::max(10.0, Number(field, "textHeight", 18.0) * 0.8);
+			mark.SetMember("_x", RE::GFxValue(Number(field, "_x") + Number(field, "textWidth") + Number(row, "_totalIconWidth") + 12.0));
+			mark.SetMember("_y", RE::GFxValue(Number(field, "_y") + (Number(field, "textHeight", 18.0) - size) / 2.0 + 2.0));
+			mark.SetMember("_xscale", RE::GFxValue(size / kMarkBox * 100.0));
+			mark.SetMember("_yscale", RE::GFxValue(size / kMarkBox * 100.0));
+			mark.SetMember("_visible", RE::GFxValue(true));
+		}
+	};
+
+	void WrapLootRows()
+	{
+		static const auto lootHandler = RE::make_gptr<LootRowHandler>();
+		const auto        ui = RE::UI::GetSingleton();
+		RE::GPtr<RE::GFxMovieView> view;
+		if (ui) {
+			view = ui->GetMovieView("LootMenu"sv);
+		}
+		if (!view) {
+			return;
+		}
+		RE::GFxValue proto;
+		if (!view->GetVariable(&proto, "_global.QuickLoot.ListItemRenderer.prototype") || !proto.IsObject() || Flag(proto, "zenitharWrapped")) {
+			return;
+		}
+		RE::GFxValue original;
+		if (!proto.GetMember("setData", &original) || !original.IsObject()) {
+			return;
+		}
+		RE::GFxValue wrapped;
+		proto.SetMember("zenitharSetData", original);
+		view->CreateFunction(&wrapped, lootHandler.get());
+		proto.SetMember("setData", wrapped);
+		proto.SetMember("zenitharWrapped", RE::GFxValue(true));
+		logger::info("quick-loot rows wrapped for the mark");
+	}
+
 	// Wraps the list's two functions, once per screen. False when the screen's rows are not SkyUI's.
 	[[nodiscard]] bool WrapRows(RE::GFxMovieView* a_view)
 	{
@@ -157,6 +326,7 @@ namespace
 		if (!a_view->GetVariable(&proto, "_global.InventoryListEntry.prototype") || !proto.IsObject()) {
 			return false;
 		}
+		WrapCard(a_view);
 		if (Flag(proto, "zenitharWrapped")) {
 			return true;
 		}
@@ -223,12 +393,11 @@ namespace
 			if ((bits & 0x3FFu) == 0) {
 				// The other side. A merchant's wares are never yours, so marking them all says nothing;
 				// a chest's contents are worth marking, because your own work may be stored in it.
-				// A body is left alone: what you take from an animal you killed becomes yours as you take it.
 				if (!Rules::ContainsNoCase(url, "containermenu"sv)) {
 					return;
 				}
 				const auto target = RE::TESObjectREFR::LookupByHandle(RE::ContainerMenu::GetTargetRefHandle());
-				if (!target || target->Is(RE::FormType::ActorCharacter)) {
+				if (!target) {
 					return;
 				}
 				holder = target->GetFormID();
@@ -244,8 +413,8 @@ namespace
 		if (a_object->GetMember("count", &countValue) && countValue.IsNumber()) {
 			count = static_cast<std::int32_t>(countValue.GetNumber());
 		}
-		const auto earned = Ledger::Get().Earned(holder, item->GetFormID());
-		const auto notYours = count - std::min(count, earned);
+		const auto notYours = holder == Ledger::kPlayer ? count - std::min(count, Ledger::Get().Earned(holder, item->GetFormID())) :
+														  Events::NotYoursIfTaken(holder, item, count);
 		if (notYours <= 0) {
 			return;
 		}
@@ -280,4 +449,21 @@ void InventoryMarks::Register()
 	} else {
 		logger::warn("no scaleform interface; inventory marks are off");
 	}
+}
+
+void InventoryMarks::OnDataLoaded()
+{
+	static CrosshairSink sink;
+	if (const auto source = SKSE::GetCrosshairRefEventSource()) {
+		source->AddEventSink(std::addressof(sink));
+	}
+}
+
+void InventoryMarks::OnMenuOpening(std::string_view a_menu)
+{
+	if (a_menu != "LootMenu"sv || !Settings::bMarkInventory.GetValue()) {
+		return;
+	}
+	// The window's own script has run by the next frame.
+	SKSE::GetTaskInterface()->AddTask([]() { SKSE::GetTaskInterface()->AddTask([]() { WrapLootRows(); }); });
 }

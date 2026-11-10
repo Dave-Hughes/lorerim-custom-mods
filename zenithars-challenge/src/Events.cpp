@@ -1,5 +1,7 @@
 #include "Events.h"
 
+#include "InventoryMarks.h"
+
 #include "Ledger.h"
 #include "Rules.h"
 #include "Settings.h"
@@ -874,6 +876,9 @@ RE::BSEventNotifyControl Events::ProcessEvent(const RE::MenuOpenCloseEvent* a_ev
 		Ledger::Get().NoteConsole();
 	}
 	// whatever was done in a menu, no hand leaves it holding magic.
+	if (a_event && a_event->opening) {
+		InventoryMarks::OnMenuOpening(a_event->menuName.c_str());
+	}
 	if (a_event && !a_event->opening && Judging() &&
 		(a_event->menuName == RE::InventoryMenu::MENU_NAME || a_event->menuName == RE::MagicMenu::MENU_NAME || a_event->menuName == RE::FavoritesMenu::MENU_NAME)) {
 		ClearMagicHands();
@@ -921,4 +926,15 @@ RE::BSEventNotifyControl Events::ProcessEvent(const RE::TESQuestStageEvent* a_ev
 		}
 	}
 	return RE::BSEventNotifyControl::kContinue;
+}
+
+std::int32_t Events::NotYoursIfTaken(RE::FormID a_holder, const RE::TESForm* a_item, std::int32_t a_count)
+{
+	if (!a_item || a_count <= 0 || !MustBeOwn(a_item)) {
+		return 0;
+	}
+	if ((!IsGear(a_item) && IsHuntedBody(a_holder)) || LootAllowed(a_item)) {
+		return 0;
+	}
+	return a_count - std::min(a_count, Ledger::Get().Earned(a_holder, a_item->GetFormID()));
 }

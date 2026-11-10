@@ -18,6 +18,7 @@ namespace
 			Events::InstallHooks();
 			Choice::Register();
 			Stats::Start();
+			InventoryMarks::OnDataLoaded();
 			break;
 		case SKSE::MessagingInterface::kSaveGame:
 			RunFile::Write();
