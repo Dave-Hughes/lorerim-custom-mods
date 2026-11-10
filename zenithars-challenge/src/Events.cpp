@@ -327,6 +327,7 @@ namespace
 			return;
 		}
 		const auto dummy = RE::TESForm::LookupByID<RE::TESObjectWEAP>(kDummyWeapon);
+		auto       cleared = false;
 		for (const bool left : { true, false }) {
 			const auto held = player->GetEquippedObject(left);
 			if (!IsForbiddenMagic(held)) {
@@ -343,6 +344,10 @@ namespace
 			} else if (const auto object = held->As<RE::TESBoundObject>()) {
 				manager->UnequipObject(player, object, nullptr, 1, slot, false, true, false, true);
 			}
+			cleared = true;
+		}
+		if (cleared) {
+			RefreshItemScreens(player);
 		}
 	}
 
@@ -357,6 +362,37 @@ namespace
 	}
 
 	// takes back off the gear the player just put on.
+	// The copy of an item the player is wearing or holding: its own extra data, or null.
+	[[nodiscard]] RE::ExtraDataList* WornCopy(RE::PlayerCharacter* a_player, const RE::TESBoundObject* a_object)
+	{
+		const auto changes = a_player->GetInventoryChanges();
+		if (!changes || !changes->entryList) {
+			return nullptr;
+		}
+		for (const auto entry : *changes->entryList) {
+			if (!entry || entry->object != a_object || !entry->extraLists) {
+				continue;
+			}
+			for (const auto list : *entry->extraLists) {
+				if (list && (list->HasType(RE::ExtraDataType::kWorn) || list->HasType(RE::ExtraDataType::kWornLeft))) {
+					return list;
+				}
+			}
+		}
+		return nullptr;
+	}
+
+	// An open item screen keeps its own copy of the pack. After the mod changes what is worn behind
+	// its back, the screen is told to read the pack again; a stale copy is a known way to crash it.
+	void RefreshItemScreens(RE::PlayerCharacter* a_player)
+	{
+		const auto ui = RE::UI::GetSingleton();
+		if (ui && (ui->IsMenuOpen(RE::InventoryMenu::MENU_NAME) || ui->IsMenuOpen(RE::ContainerMenu::MENU_NAME) || ui->IsMenuOpen(RE::BarterMenu::MENU_NAME) ||
+					  ui->IsMenuOpen(RE::FavoritesMenu::MENU_NAME))) {
+			RE::SendUIMessage::SendInventoryUpdateMessage(a_player, nullptr);
+		}
+	}
+
 	void TakeOff(RE::FormID a_form)
 	{
 		SKSE::GetTaskInterface()->AddTask([a_form]() {
@@ -366,7 +402,9 @@ namespace
 				return;
 			}
 			if (const auto manager = RE::ActorEquipManager::GetSingleton()) {
-				manager->UnequipObject(player, object, nullptr, 1, nullptr, true, false, false, true);
+				// The worn copy is named outright, so a stack that mixes worn and unworn copies is not left half changed.
+				manager->UnequipObject(player, object, WornCopy(player, object), 1, nullptr, true, false, false, true);
+				RefreshItemScreens(player);
 			}
 		});
 	}
