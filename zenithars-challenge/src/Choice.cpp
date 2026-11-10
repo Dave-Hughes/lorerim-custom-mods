@@ -174,12 +174,12 @@ namespace
 	void AskOptions(Mode a_mode)
 	{
 		std::vector<Card> cards{
-			{ "Loot Gems", "Gems you find count as yours.\n\nLeave unticked to use only the gems you mine.", std::string(kPicture) },
-			{ "Loot Empty Soul Gems", "Empty soul gems you find count as yours.\n\nLeave unticked to use only the soul gems you craft.", std::string(kPicture) },
-			{ "Gems From Coin Purses", "Gems that come out of coin purses count as yours.\n\nLeave unticked to toss them.", std::string(kPicture) },
-			{ "Keep Quest Rewards", "Items given to you as quest rewards count as yours.\n\nLeave unticked to keep only the septims.", std::string(kPicture) },
-			{ "Keep Starting Items", "Everything you carry right now counts as yours.\n\nLeave unticked to start with nothing of your own.", std::string(kPicture) },
-			{ "Others' Kills", "Hides and meat from animals you did not kill count as hunted.\n\nLeave unticked to count only your own kills.", std::string(kPicture) },
+			{ "Looted Gems", "Ticked: gems you take from chests, bodies and shops count as yours.\n\nUnticked: only gems that drop when you mine a vein count.", std::string(kPicture) },
+			{ "Looted Soul Gems", "Ticked: empty soul gems you take from chests, bodies and shops count as yours.\n\nUnticked: only soul gems you craft count.", std::string(kPicture) },
+			{ "Coin Purse Gems", "Ticked: gems that come out of coin purses count as yours.\n\nUnticked: they do not, so toss them.", std::string(kPicture) },
+			{ "Quest Rewards", "Ticked: items handed to you as quest rewards count as yours.\n\nUnticked: only the septims do.", std::string(kPicture) },
+			{ "Starting Items", "Ticked: everything you are carrying right now counts as yours.\n\nUnticked: nothing you start with counts.", std::string(kPicture) },
+			{ "Others' Kills", "Ticked: hides and meat from any dead animal count as hunted.\n\nUnticked: only animals you killed yourself count.", std::string(kPicture) },
 		};
 		OpenWindow(std::move(cards), 6, 0, [a_mode](std::vector<int> a_picked) {
 			std::uint32_t options = 0;
@@ -205,7 +205,7 @@ namespace
 				return;
 			}
 			const auto mode = a_picked.front() == 0 ? Mode::kOath : Mode::kHonor;
-			Box("Now choose the rules the challenge leaves to you.\n\nTick the ones you allow, then confirm. You may tick none.", [mode]() { AskOptions(mode); });
+			Box("Now choose the rules the challenge leaves up to you.\n\nTick a card to allow it. You may tick none.", [mode]() { AskOptions(mode); });
 		});
 	}
 
