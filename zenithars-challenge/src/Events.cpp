@@ -299,6 +299,8 @@ namespace
 		static constexpr std::size_t                   kIndex = 0x10F;
 	};
 
+	void RefreshItemScreens(RE::PlayerCharacter* a_player);
+
 	[[nodiscard]] bool IsForbiddenMagic(const RE::TESForm* a_form)
 	{
 		if (!a_form) {
