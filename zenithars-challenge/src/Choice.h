@@ -1,6 +1,6 @@
 #pragma once
 
-// The choice made once per character: Oath or Honor, then the rules the challenge leaves to the
+// The choice made once per character: the challenge or a standard playthrough, then the rules the challenge leaves to the
 // player. Shown as card windows (the B612 traits window that LoreRim uses for traits and
 // birthsigns), once LoreRim's own character setup is over.
 namespace Choice

@@ -517,7 +517,7 @@ void Ledger::OnLoad(SKSE::SerializationInterface* a_intfc)
 		case kRecordMode:
 			// The value read as the count is the mode itself.
 			self._mode = count == static_cast<std::uint32_t>(Mode::kOath) ? Mode::kOath :
-						 count == static_cast<std::uint32_t>(Mode::kHonor) ? Mode::kHonor : Mode::kUnset;
+						 count == static_cast<std::uint32_t>(Mode::kOff) ? Mode::kOff : Mode::kUnset;
 			break;
 		case kRecordOptions:
 			self._options = count;

@@ -147,7 +147,7 @@ namespace
 		body += std::format("\"written\":{},", Quote(std::format("{:%FT%TZ}", std::chrono::floor<std::chrono::seconds>(std::chrono::system_clock::now()))));
 		body += std::format("\"character\":{{\"name\":{},\"race\":{},\"level\":{}}},",
 			Quote(player ? player->GetName() : ""), Quote(race ? race->GetName() : ""), player ? player->GetLevel() : 0);
-		body += std::format("\"mode\":{},", Quote(Events::CurrentMode() == Mode::kOath ? "oath"sv : "honor"sv));
+		body += "\"mode\":\"oath\",";
 		body += std::format("\"modeChosen\":{},", snapshot.mode == Mode::kUnset ? "false" : "true");
 		body += std::format("\"options\":{{\"lootGems\":{},\"lootSoulGems\":{},\"coinPurseGems\":{},\"questRewards\":{},\"startingItems\":{},\"othersKills\":{}}},",
 			(snapshot.options & Option::kLootGems) != 0, (snapshot.options & Option::kLootSoulGems) != 0, (snapshot.options & Option::kCoinPurseGems) != 0,
@@ -210,6 +210,9 @@ namespace
 
 void RunFile::Write()
 {
+	if (!Events::OnChallenge()) {
+		return;  // a standard playthrough has no run to report
+	}
 	const auto player = RE::PlayerCharacter::GetSingleton();
 	auto       directory = SKSE::log::log_directory();
 	if (!player || !directory) {

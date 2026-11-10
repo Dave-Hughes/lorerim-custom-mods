@@ -10,10 +10,10 @@ namespace Settings
 	// Items from these plugins may be eaten or drunk whoever made them (water, provisions). Separate names with |
 	inline REX::INI::Str sAllowedPlugins{ "Rules", "sAllowedPlugins", "Waterskin.esp|LoreRim Respawn Provision.esp" };
 
-	// Testing aid until the character-creation choice exists: "honor" or "oath" overrides the saved mode. Empty = use the save's.
+	// Testing aid: "oath" (on the challenge) or "off" (standard playthrough) overrides the save's own choice. Empty = use the save's.
 	inline REX::INI::Str sForceMode{ "Rules", "sForceMode", "" };
 
-	// Testing aid: ask an existing character for its mode after loading, if it has none yet.
+	// Testing aid: ask an existing character whether it takes the challenge after loading, if it has not been asked.
 	inline REX::INI::Bool bAskOnLoad{ "Rules", "bAskOnLoad", false };
 
 	// Messages

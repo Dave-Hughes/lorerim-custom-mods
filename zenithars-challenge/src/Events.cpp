@@ -58,15 +58,11 @@ namespace
 
 	std::atomic_bool g_armed{ false };
 
-	// Rules are judged once the game has settled after loading, and not before a new character
-	// has been asked for its mode (its starting gear is put on before that).
+	// Rules are judged only for a character that took the challenge, and only once the game has
+	// settled after loading.
 	[[nodiscard]] bool Judging()
 	{
-		if (!g_armed) {
-			return false;
-		}
-		const auto& ledger = Ledger::Get();
-		return !(ledger.ChoicePending() && ledger.StoredMode() == Mode::kUnset);
+		return g_armed && Events::OnChallenge();
 	}
 
 	// The same equip can be reported more than once; a repeat within this window is ignored.
@@ -146,7 +142,7 @@ namespace
 
 	void ShowMade(const RE::TESForm* a_item, std::int32_t a_count, Source a_source)
 	{
-		if (Settings::bShowMadeMessages.GetValue()) {
+		if (Settings::bShowMadeMessages.GetValue() && Events::OnChallenge()) {
 			const auto text = std::format("Zenithar: {} x{} {}", ItemName(a_item), a_count, SourceVerb(a_source));
 			RE::SendHUDMessage::ShowHUDMessage(text.c_str());
 		}
@@ -154,7 +150,7 @@ namespace
 
 	void ShowNotYours(const RE::TESForm* a_item, std::int32_t a_count)
 	{
-		if (a_count > 0 && Settings::bShowNotYoursMessages.GetValue() && IsRestricted(a_item)) {
+		if (a_count > 0 && Settings::bShowNotYoursMessages.GetValue() && Events::OnChallenge() && IsRestricted(a_item)) {
 			const auto text = std::format("Zenithar: {} x{} is not yours", ItemName(a_item), a_count);
 			RE::SendHUDMessage::ShowHUDMessage(text.c_str());
 		}
@@ -240,11 +236,11 @@ Mode Events::CurrentMode()
 	if (EqualsNoCase(forced, "oath"sv)) {
 		return Mode::kOath;
 	}
-	if (EqualsNoCase(forced, "honor"sv)) {
-		return Mode::kHonor;
+	if (EqualsNoCase(forced, "off"sv)) {
+		return Mode::kOff;
 	}
 	const auto stored = Ledger::Get().StoredMode();
-	return stored == Mode::kOath ? Mode::kOath : Mode::kHonor;
+	return stored == Mode::kOath ? Mode::kOath : Mode::kOff;
 }
 
 namespace
@@ -257,18 +253,18 @@ namespace
 		}
 	}
 
-	// Oath mode: food and potions that are not the player's own are refused before they are used.
+	// food and potions that are not the player's own are refused before they are used.
 	// Actor::DrinkPotion is what the game calls for both.
 	struct DrinkPotionHook
 	{
 		static bool thunk(RE::Actor* a_this, RE::AlchemyItem* a_potion, RE::ExtraDataList* a_extraList)
 		{
-			if (a_potion && Judging() && Events::CurrentMode() == Mode::kOath && MustBeOwn(a_potion) &&
+			if (a_potion && Judging() && MustBeOwn(a_potion) &&
 				Ledger::Get().Earned(Ledger::kPlayer, a_potion->GetFormID()) <= 0) {
 				const auto name = ItemName(a_potion);
-				logger::info("OATH refused: {} [{:08X}] not consumed", name, a_potion->GetFormID());
-				ShowLine(a_potion->IsFood() ? std::format("{} was not cooked by you. Your oath holds.", name) :
-											  std::format("{} was not brewed by you. Your oath holds.", name));
+				logger::info("refused: {} [{:08X}] not consumed", name, a_potion->GetFormID());
+				ShowLine(a_potion->IsFood() ? std::format("{} was not cooked by you.", name) :
+											  std::format("{} was not brewed by you.", name));
 				return false;
 			}
 			return func(a_this, a_potion, a_extraList);
@@ -295,7 +291,7 @@ namespace
 		return false;
 	}
 
-	// Oath mode: empties any hand that holds a spell, a scroll or a staff. A spell has no "unequip"
+	// empties any hand that holds a spell, a scroll or a staff. A spell has no "unequip"
 	// of its own, so the hand is cleared the way hotkey mods do it: a hidden dummy weapon is put in
 	// the hand and taken straight back out. Main thread only.
 	void ClearMagicHandsNow()
@@ -312,7 +308,7 @@ namespace
 				continue;
 			}
 			const auto slot = RE::TESForm::LookupByID<RE::BGSEquipSlot>(left ? kLeftHandSlot : kRightHandSlot);
-			logger::info("OATH: {} hand cleared of {} [{:08X}]", left ? "left" : "right", held->GetName(), held->GetFormID());
+			logger::info("{} hand cleared of {} [{:08X}]", left ? "left" : "right", held->GetName(), held->GetFormID());
 			if (const auto spell = held->As<RE::SpellItem>(); spell && !held->Is(RE::FormType::Scroll)) {
 				player->DeselectSpell(spell);
 			}
@@ -335,7 +331,7 @@ namespace
 		});
 	}
 
-	// Oath mode: takes back off the gear the player just put on.
+	// takes back off the gear the player just put on.
 	void TakeOff(RE::FormID a_form)
 	{
 		SKSE::GetTaskInterface()->AddTask([a_form]() {
@@ -385,7 +381,7 @@ namespace
 		return total;
 	}
 
-	// Oath mode: a sale of something that was not the player's own is reversed. The item comes
+	// a sale of something that was not the player's own is reversed. The item comes
 	// back and the septims paid for it go back to the merchant. Runs two frames later, so the
 	// payment has been reported by then whichever order the game reports them in.
 	void UndoSale(RE::FormID a_merchant, RE::FormID a_form, std::int32_t a_back, std::int32_t a_sold)
@@ -407,7 +403,7 @@ namespace
 				}
 				RE::SendUIMessage::SendInventoryUpdateMessage(player, nullptr);
 				RE::SendUIMessage::SendInventoryUpdateMessage(merchant, nullptr);
-				logger::info("OATH refused: sale of {} x{} reversed, {} septims returned to the merchant", ItemName(object), a_back, refund);
+				logger::info("refused: sale of {} x{} reversed, {} septims returned to the merchant", ItemName(object), a_back, refund);
 			});
 		});
 	}
@@ -597,12 +593,8 @@ void Events::OnLeftPack(const RE::TESContainerChangedEvent& a_event, RE::TESForm
 		const auto earned = ledger.Transfer(Ledger::kPlayer, a_event.newContainer, form, count, selling);
 		logger::debug("pack -{} {} [{:08X}] to {:08X}{}: {} yours", count, ItemName(a_item), form, a_event.newContainer, selling ? " (sold)" : "", earned);
 		if (selling && Judging() && earned < count) {
-			if (CurrentMode() == Mode::kOath) {
-				ShowLine(std::format("{} x{} was not yours to sell. Your oath holds.", ItemName(a_item), count - earned));
-				UndoSale(a_event.newContainer, form, count - earned, count);
-			} else {
-				Break(Rule::kSale, a_item, count - earned, std::format("{} x{} was not yours to sell.", ItemName(a_item), count - earned));
-			}
+			ShowLine(std::format("{} x{} was not yours to sell.", ItemName(a_item), count - earned));
+			UndoSale(a_event.newContainer, form, count - earned, count);
 		}
 		return;
 	}
@@ -626,9 +618,9 @@ void Events::OnLeftPack(const RE::TESContainerChangedEvent& a_event, RE::TESForm
 		g_lastUsed = { form, count, now };
 	}
 	const auto bench = CurrentBench();
-	// Oath: the game reports food and potions as used up a moment before it asks to use them, and
+	// the game reports food and potions as used up a moment before it asks to use them, and
 	// the refusal comes at that second step. Nothing was eaten, so nothing is counted or recorded.
-	if (bench == Bench::kNone && a_item->Is(RE::FormType::AlchemyItem) && Judging() && CurrentMode() == Mode::kOath && MustBeOwn(a_item) &&
+	if (bench == Bench::kNone && a_item->Is(RE::FormType::AlchemyItem) && Judging() && MustBeOwn(a_item) &&
 		ledger.Earned(Ledger::kPlayer, form) <= 0) {
 		logger::debug("pack -{} {} [{:08X}] reported used, about to be refused: not counted", count, ItemName(a_item), form);
 		return;
@@ -738,11 +730,11 @@ RE::BSEventNotifyControl Events::ProcessEvent(const RE::TESActivateEvent* a_even
 	if (!base) {
 		return RE::BSEventNotifyControl::kContinue;
 	}
-	if (Judging() && CurrentMode() == Mode::kOath && IsMissiveBoard(a_event->objectActivated.get())) {
+	if (Judging() && IsMissiveBoard(a_event->objectActivated.get())) {
 		// The Missives mod unblocks its board whenever it refreshes it, so the board is blocked
 		// again here and the list of notes is closed if it managed to open.
-		logger::info("OATH refused: missive board {:08X}", a_event->objectActivated->GetFormID());
-		ShowLine("Missives are not allowed. Your oath holds.");
+		logger::info("refused: missive board {:08X}", a_event->objectActivated->GetFormID());
+		ShowLine("Missives are not allowed.");
 		a_event->objectActivated->SetActivationBlocked(true);
 		SKSE::GetTaskInterface()->AddTask([]() {
 			if (const auto queue = RE::UIMessageQueue::GetSingleton()) {
@@ -798,8 +790,7 @@ RE::BSEventNotifyControl Events::ProcessEvent(const RE::TESEquipEvent* a_event, 
 		return RE::BSEventNotifyControl::kContinue;
 	}
 
-	const auto oath = CurrentMode() == Mode::kOath;
-	if (oath && kind == Kind::kMagic) {
+	if (kind == Kind::kMagic) {
 		// Every time, even for a repeat: the second click on a spell is what used to stick.
 		ClearMagicHands();
 	}
@@ -814,12 +805,8 @@ RE::BSEventNotifyControl Events::ProcessEvent(const RE::TESEquipEvent* a_event, 
 	}
 
 	if (kind == Kind::kMagic) {
-		if (oath) {
-			logger::info("OATH refused: {} [{:08X}] (magic) taken off", name, form);
-			ShowLine(std::format("{} is magic. Only enchanting is allowed. Your oath holds.", name));
-		} else {
-			Break(Rule::kMagic, item, 1, std::format("{} is magic. Only enchanting is allowed.", name));
-		}
+		logger::info("refused: {} [{:08X}] (magic) taken off", name, form);
+		ShowLine(std::format("{} is magic. Only enchanting is allowed.", name));
 		return RE::BSEventNotifyControl::kContinue;
 	}
 
@@ -827,22 +814,14 @@ RE::BSEventNotifyControl Events::ProcessEvent(const RE::TESEquipEvent* a_event, 
 	const auto earned = ledger.Earned(Ledger::kPlayer, form);
 	const auto unearned = ledger.UnearnedInPack(form);
 	if (earned <= 0) {
-		if (oath) {
-			logger::info("OATH refused: {} [{:08X}] taken off", name, form);
-			ShowLine(std::format("{} was not made by your hand. Your oath holds.", name));
-			TakeOff(form);
-		} else {
-			Break(Rule::kGear, item, 1, std::format("{} was not made by your hand.", name));
-		}
+		logger::info("refused: {} [{:08X}] taken off", name, form);
+		ShowLine(std::format("{} was not made by your hand.", name));
+		TakeOff(form);
 	} else if (unearned > 0) {
 		// A mixed stack: some copies are the player's own and some are not.
-		if (oath) {
-			logger::info("OATH refused: {} [{:08X}] mixed stack ({} not yours) taken off", name, form, unearned);
-			ShowLine(std::format("{} of your {} are not yours. Store them first.", unearned, name));
-			TakeOff(form);
-		} else {
-			ShowLine(std::format("{} of your {} are not yours. Store them.", unearned, name));
-		}
+		logger::info("refused: {} [{:08X}] mixed stack ({} not yours) taken off", name, form, unearned);
+		ShowLine(std::format("{} of your {} are not yours. Store them first.", unearned, name));
+		TakeOff(form);
 	}
 	return RE::BSEventNotifyControl::kContinue;
 }
@@ -852,8 +831,8 @@ RE::BSEventNotifyControl Events::ProcessEvent(const RE::MenuOpenCloseEvent* a_ev
 	if (a_event && a_event->opening && a_event->menuName == RE::Console::MENU_NAME) {
 		Ledger::Get().NoteConsole();
 	}
-	// Oath: whatever was done in a menu, no hand leaves it holding magic.
-	if (a_event && !a_event->opening && Judging() && CurrentMode() == Mode::kOath &&
+	// whatever was done in a menu, no hand leaves it holding magic.
+	if (a_event && !a_event->opening && Judging() &&
 		(a_event->menuName == RE::InventoryMenu::MENU_NAME || a_event->menuName == RE::MagicMenu::MENU_NAME || a_event->menuName == RE::FavoritesMenu::MENU_NAME)) {
 		ClearMagicHands();
 	}
@@ -869,7 +848,7 @@ RE::BSEventNotifyControl Events::ProcessEvent(const RE::TESCellAttachDetachEvent
 	}
 	if (!a_event->attached) {
 		a_event->reference->SetActivationBlocked(false);
-	} else if (Judging() && CurrentMode() == Mode::kOath) {
+	} else if (Judging()) {
 		a_event->reference->SetActivationBlocked(true);
 	}
 	return RE::BSEventNotifyControl::kContinue;

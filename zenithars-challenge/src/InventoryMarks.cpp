@@ -1,5 +1,6 @@
 #include "InventoryMarks.h"
 
+#include "Events.h"
 #include "Ledger.h"
 #include "Rules.h"
 #include "Settings.h"
@@ -29,7 +30,7 @@ namespace
 	// Called by SKSE for every row the game builds for an item list.
 	void OnInventoryEntry(RE::GFxMovieView* a_view, RE::GFxValue* a_object, RE::InventoryEntryData* a_item)
 	{
-		if (!Settings::bMarkInventory.GetValue() || !a_view || !a_object || !a_object->IsObject() || !a_item) {
+		if (!Settings::bMarkInventory.GetValue() || !Events::OnChallenge() || !a_view || !a_object || !a_object->IsObject() || !a_item) {
 			return;
 		}
 		// The player's own inventory screen and a merchant's. The screen is

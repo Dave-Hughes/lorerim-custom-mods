@@ -29,12 +29,14 @@ enum class Rule : std::uint8_t
 	kTotal
 };
 
-// How the rules are enforced for this character. Chosen once, at character creation.
+// Whether this character is playing Zenithar's Challenge. Chosen once, at character creation.
+// (The values are what older saves hold: 1 was "Honor", a warn-only mode that no longer exists and
+// now reads as a standard playthrough; 2 was "Oath", which is the challenge.)
 enum class Mode : std::uint8_t
 {
-	kUnset = 0,  // not chosen yet: behaves as Honor
-	kHonor,      // breaking a rule is allowed, warned about and recorded
-	kOath,       // breaking a rule is refused
+	kUnset = 0,  // not asked yet: nothing is judged
+	kOff,        // a standard playthrough: the mod stays out of the way
+	kOath,       // the challenge: breaking a rule is refused
 };
 
 // The rules the challenge leaves to the player, chosen with the mode. A set bit means "allowed".

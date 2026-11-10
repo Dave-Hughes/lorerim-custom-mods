@@ -30,8 +30,10 @@ public:
 	// The "keep starting items" choice: everything in the pack right now becomes the player's own. Main thread only.
 	static void KeepPack();
 
-	// The mode in force: the ini override if set, else the character's own; unset counts as Honor.
+	// The mode in force: the ini override if set, else the character's own; not asked yet counts as off.
 	[[nodiscard]] static Mode CurrentMode();
+	// True when this character is playing the challenge.
+	[[nodiscard]] static bool OnChallenge() { return CurrentMode() == Mode::kOath; }
 	// Hooks that let Oath mode refuse food and potions before they are used.
 	static void InstallHooks();
 

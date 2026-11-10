@@ -46,9 +46,8 @@ namespace
 						} else {
 							Choice::OnNewGame(turn);
 						}
-						if (loaded && Settings::bShowMadeMessages.GetValue()) {
-							const auto text = std::format("Zenithar's Challenge ({}): {} items made, {} rules broken",
-								Events::CurrentMode() == Mode::kOath ? "Oath" : "Honor", Ledger::Get().TotalMade(), Ledger::Get().ViolationCount());
+						if (loaded && Events::OnChallenge() && Settings::bShowMadeMessages.GetValue()) {
+							const auto text = std::format("Zenithar's Challenge: {} items made, {} rules broken", Ledger::Get().TotalMade(), Ledger::Get().ViolationCount());
 							RE::SendHUDMessage::ShowHUDMessage(text.c_str());
 						}
 					});

@@ -119,7 +119,7 @@ namespace
 				WaitForWindow(std::move(cards), a_max, a_min, a_triesLeft - 1);
 				return;
 			}
-			logger::warn("the choice window did not open; the character keeps the default (Honor) for now");
+			logger::warn("the choice window did not open; the character has not been asked");
 			g_done = nullptr;
 			g_asking = false;
 		});
@@ -165,10 +165,10 @@ namespace
 			Events::KeepPack();
 		}
 		g_asking = false;
-		logger::info("CHOSEN: mode {} options {:#04x}", a_mode == Mode::kOath ? "Oath" : "Honor", a_options);
+		logger::info("CHOSEN: {} options {:#04x}", a_mode == Mode::kOath ? "the challenge" : "standard playthrough", a_options);
 		RE::DebugMessageBox(a_mode == Mode::kOath ?
 				"Your oath is sworn.\n\nThe game will hold you to the rules of Zenithar's Challenge." :
-				"On your honor.\n\nNothing will be stopped. Every broken rule goes on your run's record.");
+				"A standard playthrough.\n\nZenithar's Challenge is off for this character.");
 	}
 
 	void AskOptions(Mode a_mode)
@@ -195,8 +195,8 @@ namespace
 	void AskMode()
 	{
 		std::vector<Card> cards{
-			{ "Oath", "The game holds you to the rules.\n\nGear, food and potions you did not make cannot be used. Spells, scrolls and staves cannot be used.\n\nThis cannot be changed later.", std::string(kPicture) },
-			{ "Honor", "You hold yourself to the rules.\n\nNothing is stopped. Each broken rule shows a warning and goes on your run's record.\n\nThis cannot be changed later.", std::string(kPicture) },
+			{ "Zenithar's Challenge", "Craft everything you use, and the game holds you to it.\n\nGear, food and potions you did not make cannot be used. Spells, scrolls and staves cannot be used. What is not yours cannot be sold.\n\nThis cannot be changed later.", std::string(kPicture) },
+			{ "Standard Playthrough", "Play LoreRim as usual.\n\nThe challenge is off for this character and nothing is stopped.\n\nThis cannot be changed later.", std::string(kPicture) },
 		};
 		OpenWindow(std::move(cards), 1, 1, [](std::vector<int> a_picked) {
 			if (a_picked.empty()) {
@@ -204,7 +204,11 @@ namespace
 				AskMode();
 				return;
 			}
-			const auto mode = a_picked.front() == 0 ? Mode::kOath : Mode::kHonor;
+			if (a_picked.front() != 0) {
+				Finish(Mode::kOff, 0);
+				return;
+			}
+			const auto mode = Mode::kOath;
 			Box("Now choose the rules the challenge leaves up to you.\n\nTick a card to allow it. You may tick none.", [mode]() { AskOptions(mode); });
 		});
 	}
@@ -219,12 +223,12 @@ namespace
 			return;
 		}
 		if (!HasWindowFile()) {
-			logger::warn("b612.esp is not loaded, so the choice window cannot be shown; the character keeps the default (Honor)");
+			logger::warn("b612.esp is not loaded, so the choice window cannot be shown; the character has not been asked");
 			g_asking = false;
 			return;
 		}
-		logger::info("asking the character for its mode");
-		Box("Zenithar's Challenge\n\nCraft everything you use. First, choose how the rules are kept.", []() { AskMode(); });
+		logger::info("asking the character whether it takes the challenge");
+		AskMode();
 	}
 
 	// LoreRim's character setup ends by giving the player this spell for a short while.
