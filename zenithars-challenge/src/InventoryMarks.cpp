@@ -177,7 +177,8 @@ namespace
 						if (!text.empty()) {
 							text += "\n";
 						}
-						text += Flag(selected, "zenitharAll") ? "<font color='#D9907C'>Not made by you.</font>" :
+						text += Flag(selected, "zenitharMagic") ? "<font color='#D9907C'>Magic is not allowed.</font>" :
+								Flag(selected, "zenitharAll") ? "<font color='#D9907C'>Not made by you.</font>" :
 																std::format("<font color='#D9907C'>{} not made by you.</font>", notYours);
 						RE::GFxValue value;
 						a_params.movie->CreateString(&value, text.c_str());
@@ -367,7 +368,9 @@ namespace
 				const auto formID = static_cast<RE::FormID>(Number(a_params.args[0], "formId", 0.0));
 				const auto target = RE::TESForm::LookupByID<RE::TESObjectREFR>(g_crosshairRef.load());
 				const auto object = formID != 0 ? RE::TESForm::LookupByID<RE::TESBoundObject>(formID) : nullptr;
-				if (target && object) {
+				if (object && Rules::IsMagicItem(object)) {
+					notYours = std::max(1, count);
+				} else if (target && object) {
 					notYours = Events::NotYoursIfTaken(target->GetFormID(), object, std::max(1, count));
 				} else {
 					notYours = NotYoursInTarget(shownName, count);
@@ -609,7 +612,8 @@ namespace
 			}
 		}
 		const RE::TESBoundObject* item = a_item->object;  // not GetObject(): windows.h defines that name as a macro
-		if (!item || !Rules::MustBeOwn(item)) {
+		const auto magic = Rules::IsMagicItem(item);
+		if (!item || (!magic && !Rules::MustBeOwn(item))) {
 			return;
 		}
 
@@ -618,10 +622,15 @@ namespace
 		if (a_object->GetMember("count", &countValue) && countValue.IsNumber()) {
 			count = static_cast<std::int32_t>(countValue.GetNumber());
 		}
-		const auto notYours = holder == Ledger::kPlayer ? count - std::min(count, Ledger::Get().Earned(holder, item->GetFormID())) :
+		// A scroll or staff is marked whoever holds it: it cannot be used at all.
+		const auto notYours = magic ? count :
+							  holder == Ledger::kPlayer ? count - std::min(count, Ledger::Get().Earned(holder, item->GetFormID())) :
 														  Events::NotYoursIfTaken(holder, item, count);
 		if (notYours <= 0) {
 			return;
+		}
+		if (magic) {
+			a_object->SetMember("zenitharMagic", RE::GFxValue(true));
 		}
 
 		// What the wrapped row functions read: how many copies are not yours, and whether that is all of them.

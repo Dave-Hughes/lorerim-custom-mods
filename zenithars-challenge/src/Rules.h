@@ -25,6 +25,8 @@ namespace Rules
 	// Raw fruit and vegetables, free under the challenge.
 	[[nodiscard]] bool IsRawProduce(const RE::TESForm* a_item);
 
+	// Scrolls and staves: magic the challenge forbids, whoever made them.
+	[[nodiscard]] bool IsMagicItem(const RE::TESForm* a_item);
 	[[nodiscard]] bool IsGem(const RE::TESForm* a_item);
 	[[nodiscard]] bool IsSoulGem(const RE::TESForm* a_item);
 

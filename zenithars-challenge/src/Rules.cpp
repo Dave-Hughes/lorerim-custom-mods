@@ -15,6 +15,18 @@ namespace Rules
 		return HasKeyword(a_item, "VendorItemOreIngot"sv) || HasKeyword(a_item, "VendorItemGem"sv);
 	}
 
+	bool IsMagicItem(const RE::TESForm* a_item)
+	{
+		if (!a_item) {
+			return false;
+		}
+		if (a_item->Is(RE::FormType::Scroll)) {
+			return true;
+		}
+		const auto weapon = a_item->As<RE::TESObjectWEAP>();
+		return weapon && weapon->IsStaff();
+	}
+
 	bool IsGem(const RE::TESForm* a_item)
 	{
 		return HasKeyword(a_item, "VendorItemGem"sv);
