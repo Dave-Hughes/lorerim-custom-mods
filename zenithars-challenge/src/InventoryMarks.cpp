@@ -442,7 +442,20 @@ namespace
 				DrawMark(mark);
 			}
 			const auto size = std::max(10.0, Number(field, "textHeight", 18.0) * 0.8);
-			mark.SetMember("_x", RE::GFxValue(Number(field, "_x") + Number(field, "textWidth") + Number(row, "_totalIconWidth") + 12.0));
+			const auto markX = Number(field, "_x") + Number(field, "textWidth") + Number(row, "_totalIconWidth") + 12.0;
+			// A name that fills its field leaves no room: the mark would sit on the value beside it.
+			// The name's colour says it alone then.
+			const auto fieldEnd = Number(field, "_x") + Number(field, "_width");
+			static std::atomic_int placed{ 0 };
+			if (placed < 6) {
+				++placed;
+				logger::debug("quick-loot mark for \"{}\": at {:.0f}, size {:.0f}, name field ends at {:.0f}", shownName, markX, size, fieldEnd);
+			}
+			if (Number(field, "_width") > 0.0 && markX + size > fieldEnd + 4.0) {
+				mark.SetMember("_visible", RE::GFxValue(false));
+				return;
+			}
+			mark.SetMember("_x", RE::GFxValue(markX));
 			mark.SetMember("_y", RE::GFxValue(Number(field, "_y") + (Number(field, "textHeight", 18.0) - size) / 2.0 + 2.0));
 			mark.SetMember("_xscale", RE::GFxValue(size / kMarkBox * 100.0));
 			mark.SetMember("_yscale", RE::GFxValue(size / kMarkBox * 100.0));

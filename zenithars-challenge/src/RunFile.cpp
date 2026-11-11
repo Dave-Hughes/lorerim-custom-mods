@@ -76,6 +76,27 @@ namespace
 		return form ? Rules::ItemName(form) : std::string{ "(gone)" };
 	}
 
+	// A kind of creature. Some races have no name in the game ("GoblinRace" is all there is), so the
+	// record's own ID stands in, without the word Race.
+	[[nodiscard]] std::string KindName(RE::FormID a_race)
+	{
+		const auto race = a_race ? RE::TESForm::LookupByID<RE::TESRace>(a_race) : nullptr;
+		if (!race) {
+			return FormName(a_race);
+		}
+		if (const auto name = race->GetName(); name && name[0] != '\0') {
+			return name;
+		}
+		std::string id = race->GetFormEditorID() ? race->GetFormEditorID() : "";
+		if (id.empty()) {
+			return FormName(a_race);
+		}
+		if (id.size() > 4 && id.ends_with("Race")) {
+			id.erase(id.size() - 4);
+		}
+		return id;
+	}
+
 	[[nodiscard]] std::string_view RuleName(Rule a_rule) noexcept
 	{
 		switch (a_rule) {
@@ -197,7 +218,7 @@ namespace
 			if (!kills.empty()) {
 				kills.push_back(',');
 			}
-			kills += std::format("{{\"kind\":{},\"id\":{},\"count\":{}}}", Quote(FormName(raceID)), Quote(FormKey(raceID)), count);
+			kills += std::format("{{\"kind\":{},\"id\":{},\"count\":{}}}", Quote(KindName(raceID)), Quote(FormKey(raceID)), count);
 		}
 		body += std::format("\"kills\":[{}],", kills);
 
