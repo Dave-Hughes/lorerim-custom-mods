@@ -299,12 +299,51 @@ namespace
 	std::atomic<RE::FormID> g_crosshairRef{ 0 };
 	std::atomic_bool        g_lootWrappedOnce{ false };
 
+	// An item lying in the world: the name under the crosshair is given the not-yours colour, so a
+	// cheese on a table says what it is before it is picked up.
+	void TintRollover(RE::FormID a_ref)
+	{
+		const auto ui = RE::UI::GetSingleton();
+		const auto view = ui ? ui->GetMovieView(RE::HUDMenu::MENU_NAME) : nullptr;
+		RE::GFxValue rollover;
+		if (!view || !view->GetVariable(&rollover, "_root.HUDMovieBaseInstance.RolloverText") || !rollover.IsDisplayObject()) {
+			static std::atomic_bool told{ false };
+			if (!told.exchange(true)) {
+				logger::warn("crosshair name: the HUD has no RolloverText to colour");
+			}
+			return;
+		}
+		static double plain = -1.0;
+		static bool   tinted = false;
+		if (!tinted) {
+			plain = Number(rollover, "textColor", 16777215.0);
+		}
+		bool notYours = false;
+		const auto ref = a_ref != 0 ? RE::TESForm::LookupByID<RE::TESObjectREFR>(a_ref) : nullptr;
+		const auto base = ref ? ref->GetBaseObject() : nullptr;
+		if (base && Events::OnChallenge() && Settings::bMarkInventory.GetValue() && !base->Is(RE::FormType::Container) && !base->Is(RE::FormType::NPC)) {
+			notYours = Rules::IsMagicItem(base) || Events::NotYoursIfTaken(0xFFFFFFFF, base, 1) > 0;  // 0xFFFFFFFF: things on the ground
+			static std::atomic_int logged{ 0 };
+			if (notYours && logged < 5) {
+				++logged;
+				logger::debug("crosshair name: {} [{:08X}] lying in the world is not yours, coloured", Rules::ItemName(base), base->GetFormID());
+			}
+		}
+		if (notYours || tinted) {
+			rollover.SetMember("textColor", RE::GFxValue(notYours ? static_cast<double>(kNameColour) : plain));
+			tinted = notYours;
+		}
+	}
+
 	class CrosshairSink : public RE::BSTEventSink<SKSE::CrosshairRefEvent>
 	{
 	public:
 		RE::BSEventNotifyControl ProcessEvent(const SKSE::CrosshairRefEvent* a_event, RE::BSTEventSource<SKSE::CrosshairRefEvent>*) override
 		{
-			g_crosshairRef = a_event && a_event->crosshairRef ? a_event->crosshairRef->GetFormID() : 0;
+			const auto ref = a_event && a_event->crosshairRef ? a_event->crosshairRef->GetFormID() : 0;
+			g_crosshairRef = ref;
+			// After the game has written the new name.
+			SKSE::GetTaskInterface()->AddUITask([ref]() { TintRollover(ref); });
 			return RE::BSEventNotifyControl::kContinue;
 		}
 	};
