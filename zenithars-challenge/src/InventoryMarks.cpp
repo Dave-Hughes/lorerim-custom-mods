@@ -294,8 +294,8 @@ namespace
 	}
 
 	// ---- the quick-loot window (QuickLoot IE) ----
-	// Its rows are its own (QuickLoot.ListItemRenderer) and carry only a name and a count, so the
-	// item is found by its name in whatever the crosshair is on.
+	// Its rows are its own (QuickLoot.ListItemRenderer). Each row's data names its item (formId), and
+	// the crosshair says whose inventory it is.
 	std::atomic<RE::FormID> g_crosshairRef{ 0 };
 	std::atomic_bool        g_lootWrappedOnce{ false };
 
@@ -428,12 +428,6 @@ namespace
 				}
 				logger::debug("quick-loot row: {} argument(s), name \"{}\", looking at {:08X}, {} not yours;{}", a_params.argCount, shownName, g_crosshairRef.load(), notYours, members);
 			}
-			if (notYours <= 0) {
-				if (has) {
-					mark.SetMember("_visible", RE::GFxValue(false));
-				}
-				return;
-			}
 			// The row's name field: asked for under the names this window's row class uses, then found
 			// by looking for the text field that shows the name.
 			RE::GFxValue field;
@@ -446,7 +440,21 @@ namespace
 					break;
 				}
 			}
-			if (!field.IsDisplayObject()) {
+			if (notYours <= 0) {
+				if (has) {
+					mark.SetMember("_visible", RE::GFxValue(false));
+				}
+				// The window reuses its rows as the list moves. A row coloured for the last item it
+				// showed gets its own colour back, unless the window has already coloured it afresh.
+				if (Flag(row, "zenitharTinted")) {
+					if (field.IsDisplayObject() && Number(field, "textColor", -1.0) == static_cast<double>(kNameColour)) {
+						field.SetMember("textColor", RE::GFxValue(Number(row, "zenitharPlain", 16777215.0)));
+					}
+					row.SetMember("zenitharTinted", RE::GFxValue(false));
+				}
+				return;
+			}
+			if (!field.IsDisplayObject() && !shownName.empty()) {
 				row.VisitMembers([&](const char* a_key, const RE::GFxValue& a_value) {
 					if (field.IsDisplayObject() || !a_key || !a_value.IsDisplayObject()) {
 						return;
@@ -471,6 +479,10 @@ namespace
 			}
 			if (!field.IsDisplayObject()) {
 				return;
+			}
+			if (!Flag(row, "zenitharTinted")) {
+				row.SetMember("zenitharPlain", RE::GFxValue(Number(field, "textColor", 16777215.0)));
+				row.SetMember("zenitharTinted", RE::GFxValue(true));
 			}
 			field.SetMember("textColor", RE::GFxValue(static_cast<double>(kNameColour)));
 			if (!has) {
@@ -728,5 +740,5 @@ void InventoryMarks::OnMenuOpening(std::string_view a_menu)
 	if (!told.exchange(true)) {
 		logger::info("quick-loot window opening as \"{}\"", a_menu);
 	}
-	WrapLootRowsSoon(std::string(a_menu), 20);
+	WrapLootRowsSoon(std::string(a_menu), 40);
 }

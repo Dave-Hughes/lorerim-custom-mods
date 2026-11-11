@@ -18,11 +18,53 @@ namespace
 	// the plugin, so a determined person can forge it. That is accepted for a for-fun challenge.
 	constexpr std::string_view kSealKey = "zenithars-challenge/run-file/v1/3f9c1e7a52b84d06a1c7e0d49b6f8235"sv;
 
+	// How many bytes the UTF-8 character starting at a_at takes, or 0 if what is there is not UTF-8.
+	[[nodiscard]] std::size_t Utf8Length(std::string_view a_text, std::size_t a_at)
+	{
+		const auto    first = static_cast<unsigned char>(a_text[a_at]);
+		std::size_t   length = 0;
+		std::uint32_t code = 0;
+		std::uint32_t least = 0;
+		if (first >= 0xC2 && first <= 0xDF) {
+			length = 2;
+			code = first & 0x1Fu;
+			least = 0x80;
+		} else if (first >= 0xE0 && first <= 0xEF) {
+			length = 3;
+			code = first & 0x0Fu;
+			least = 0x800;
+		} else if (first >= 0xF0 && first <= 0xF4) {
+			length = 4;
+			code = first & 0x07u;
+			least = 0x10000;
+		} else {
+			return 0;
+		}
+		if (a_at + length > a_text.size()) {
+			return 0;
+		}
+		for (std::size_t i = 1; i < length; ++i) {
+			const auto next = static_cast<unsigned char>(a_text[a_at + i]);
+			if ((next & 0xC0u) != 0x80u) {
+				return 0;
+			}
+			code = (code << 6) | (next & 0x3Fu);
+		}
+		if (code < least || code > 0x10FFFF || (code >= 0xD800 && code <= 0xDFFF)) {
+			return 0;
+		}
+		return length;
+	}
+
+	// For a JSON string. The file has to be valid UTF-8 or the site cannot check its seal, and a
+	// name from an old mod may be in a Windows code page instead: such a byte is written as an escape.
 	[[nodiscard]] std::string Escape(std::string_view a_text)
 	{
 		std::string out;
 		out.reserve(a_text.size() + 2);
-		for (const auto ch : a_text) {
+		for (std::size_t at = 0; at < a_text.size(); ++at) {
+			const auto ch = a_text[at];
+			const auto byte = static_cast<unsigned char>(ch);
 			switch (ch) {
 			case '"':
 				out += "\\\"";
@@ -40,10 +82,15 @@ namespace
 				out += "\\t";
 				break;
 			default:
-				if (static_cast<unsigned char>(ch) < 0x20) {
-					out += std::format("\\u{:04x}", static_cast<unsigned>(static_cast<unsigned char>(ch)));
-				} else {
+				if (byte < 0x20) {
+					out += std::format("\\u{:04x}", static_cast<unsigned>(byte));
+				} else if (byte < 0x80) {
 					out.push_back(ch);
+				} else if (const auto length = Utf8Length(a_text, at); length > 0) {
+					out.append(a_text.substr(at, length));
+					at += length - 1;
+				} else {
+					out += std::format("\\u{:04x}", static_cast<unsigned>(byte));
 				}
 				break;
 			}
@@ -178,6 +225,11 @@ namespace
 			(snapshot.options & Option::kLootGems) != 0, (snapshot.options & Option::kLootSoulGems) != 0, (snapshot.options & Option::kCoinPurseGems) != 0,
 			(snapshot.options & Option::kQuestRewards) != 0, (snapshot.options & Option::kStartingItems) != 0, (snapshot.options & Option::kOthersKills) != 0);
 		body += std::format("\"daysPassed\":{:.2f},", calendar ? calendar->GetDaysPassed() : 0.0F);
+		// When the challenge was taken, and whether by a new character or one that already had a past.
+		if (snapshot.joined != Joined::kUnknown) {
+			body += std::format("\"taken\":{{\"day\":{:.2f},\"character\":{}}},", std::max(0.0F, snapshot.takenOnDay),
+				Quote(snapshot.joined == Joined::kNew ? "new"sv : "existing"sv));
+		}
 
 		// What was made, by how.
 		Ledger::MadeCounts totals{};

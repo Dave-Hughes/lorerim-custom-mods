@@ -4,19 +4,11 @@
 // Users may override any value in ZenitharsChallenge_Custom.ini (same folder), which survives updates.
 namespace Settings
 {
-	// Rules
-	inline REX::INI::Bool bCountOthersKills{ "Rules", "bCountOthersKills", false };
+	// The rules themselves are not settings: anything that loosened them here would not show in the
+	// run file. What the challenge leaves to the player is chosen in the game, once, and is written to the run.
 
-	// Clothing, jewelry, cloaks and bags must be the player's own too, not only armor.
-	inline REX::INI::Bool bRestrictClothing{ "Rules", "bRestrictClothing", true };
-
-	// Items from these plugins may be eaten or drunk whoever made them (water, provisions). Separate names with |
-	inline REX::INI::Str sAllowedPlugins{ "Rules", "sAllowedPlugins", "Waterskin.esp|LoreRim Respawn Provision.esp" };
-
-	// Testing aid: "oath" (on the challenge) or "off" (standard playthrough) overrides the save's own choice. Empty = use the save's.
-	inline REX::INI::Str sForceMode{ "Rules", "sForceMode", "" };
-
-	// Testing aid: ask an existing character whether it takes the challenge after loading, if it has not been asked.
+	// Ask an existing character whether it takes the challenge after loading, if it has not been asked.
+	// Such a character gets none of a new character's allowances, and its run says when it joined.
 	inline REX::INI::Bool bAskOnLoad{ "Rules", "bAskOnLoad", false };
 
 	// Messages

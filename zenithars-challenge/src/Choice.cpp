@@ -122,6 +122,8 @@ namespace
 		return true;
 	}
 
+	void Begin();
+
 	void WaitForWindow(std::vector<Card> a_cards, int a_max, int a_min, int a_triesLeft)
 	{
 		After(100ms, [cards = std::move(a_cards), a_max, a_min, a_triesLeft]() mutable {
@@ -133,9 +135,17 @@ namespace
 				WaitForWindow(std::move(cards), a_max, a_min, a_triesLeft - 1);
 				return;
 			}
-			logger::warn("the choice window did not open; the character has not been asked");
+			// Nothing is decided for the player unseen: the question is put again, a few times.
 			g_done = nullptr;
 			g_asking = false;
+			static std::atomic_int failures{ 0 };
+			if (++failures < 3) {
+				logger::warn("the rules window did not open; asking again in a few seconds");
+				After(5s, []() { Begin(); });
+			} else {
+				logger::warn("the rules window did not open; the character has not been asked and will be on the next load");
+				RE::SendHUDMessage::ShowHUDMessage("Zenithar's Challenge could not show its rules. You will be asked again when you next load this character.");
+			}
 		});
 	}
 
@@ -199,25 +209,36 @@ namespace
 	void Finish(Mode a_mode, std::uint32_t a_options)
 	{
 		auto& ledger = Ledger::Get();
+		// A new character was marked, when its game began, as one still to be asked. A character asked
+		// later (the bAskOnLoad switch on an old save) has a past: what it carries is not its own work,
+		// and it gets none of a new character's allowances, or a full pack could be kept in one tick.
+		const auto fresh = ledger.ChoicePending();
+		if (!fresh) {
+			a_options &= ~Option::kStartingItems;
+		}
 		ledger.SetMode(a_mode);
 		ledger.SetOptions(a_options);
 		ledger.SetChoicePending(false);
+		if (a_mode == Mode::kOath) {
+			const auto calendar = RE::Calendar::GetSingleton();
+			ledger.SetTaken(calendar ? calendar->GetDaysPassed() : 0.0F, fresh ? Joined::kNew : Joined::kExisting);
+		}
 		// Whatever the character carries is counted first, then kept if the player chose that.
 		Events::TakeStock();
-		if ((a_options & Option::kStartingItems) != 0) {
-			Events::KeepPack();
-		} else if (a_mode == Mode::kOath) {
-			// The clothes on the character's back are theirs either way. A start's weapons, armor,
-			// jewelry and other gear are not.
-			Events::KeepStartingClothes();
-		}
-		if (a_mode == Mode::kOath) {
+		if (a_mode == Mode::kOath && fresh) {
+			if ((a_options & Option::kStartingItems) != 0) {
+				Events::KeepPack();
+			} else {
+				// The clothes on the character's back are theirs either way. A start's weapons, armor,
+				// jewelry and other gear are not.
+				Events::KeepStartingClothes();
+			}
 			// A character has to eat: the food it has now, and what it picks up before leaving this room, is its own.
 			Events::BeginStartingGrace();
 		}
 		Status::Sync();
 		g_asking = false;
-		logger::info("CHOSEN: {} options {:#04x}", a_mode == Mode::kOath ? "the challenge" : "standard playthrough", a_options);
+		logger::info("CHOSEN: {} options {:#04x} ({} character)", a_mode == Mode::kOath ? "the challenge" : "standard playthrough", a_options, fresh ? "new" : "existing");
 		RE::SendHUDMessage::ShowHUDMessage(a_mode == Mode::kOath ? "Zenithar's Challenge: your oath is sworn." : "Zenithar's Challenge is off for this character.");
 	}
 
@@ -252,7 +273,11 @@ namespace
 	{
 		logger::info("the first box was answered with button {}", a_button);
 		SKSE::GetTaskInterface()->AddTask([a_button]() {
-			if (a_button == 0) {
+			if (a_button == 0 && !HasWindowFile()) {
+				// Outside LoreRim there is no card window to show the six rules in: the challenge as written.
+				logger::warn("b612.esp is not loaded, so the six rules cannot be shown; all of them are left not allowed");
+				Finish(Mode::kOath, 0);
+			} else if (a_button == 0) {
 				AskOptions();
 			} else {
 				Finish(Mode::kOff, 0);
@@ -277,11 +302,6 @@ namespace
 			return;
 		}
 		if (Ledger::Get().StoredMode() != Mode::kUnset) {
-			g_asking = false;
-			return;
-		}
-		if (!HasWindowFile()) {
-			logger::warn("b612.esp is not loaded, so the choice window cannot be shown; the character has not been asked");
 			g_asking = false;
 			return;
 		}

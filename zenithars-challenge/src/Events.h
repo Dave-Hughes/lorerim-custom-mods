@@ -2,8 +2,10 @@
 
 #include "Ledger.h"
 
-// Listens to the game's own "an item changed hands" and "an actor died" events and keeps the
-// ledger in step. Nothing here changes the game; it only watches.
+// Listens to the game's own events (an item changed hands, an actor died, something was equipped or
+// activated, a quest moved on) and keeps the ledger in step. For a character on the challenge it also
+// acts: gear that is not the player's comes back off, magic leaves the hand, a sale of something not
+// theirs is undone, food and potions not theirs are refused, and missive boards stay shut.
 class Events :
 	public RE::BSTEventSink<RE::TESContainerChangedEvent>,
 	public RE::BSTEventSink<RE::TESDeathEvent>,
@@ -35,14 +37,14 @@ public:
 	// The "keep starting items" choice: everything in the pack right now becomes the player's own. Main thread only.
 	static void KeepPack();
 
-	// The mode in force: the ini override if set, else the character's own; not asked yet counts as off.
+	// The mode in force: the character's own choice; not asked yet counts as off.
 	[[nodiscard]] static Mode CurrentMode();
 	// How many of a_count copies of an item held by someone else (a chest, a body) would not be the
 	// player's own once taken. 0 for items the rules do not care about.
 	[[nodiscard]] static std::int32_t NotYoursIfTaken(RE::FormID a_holder, const RE::TESForm* a_item, std::int32_t a_count);
 	// True when this character is playing the challenge.
 	[[nodiscard]] static bool OnChallenge() { return CurrentMode() == Mode::kOath; }
-	// Hooks that let Oath mode refuse food and potions before they are used.
+	// The hook that refuses food and potions before they are used.
 	static void InstallHooks();
 
 	RE::BSEventNotifyControl ProcessEvent(const RE::TESContainerChangedEvent* a_event, RE::BSTEventSource<RE::TESContainerChangedEvent>* a_source) override;

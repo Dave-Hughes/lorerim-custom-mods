@@ -16,6 +16,8 @@ namespace
 	constexpr std::uint32_t kRecordDeaths = 'DTHS';
 	constexpr std::uint32_t kRecordStartCell = 'STCL';
 	constexpr std::uint32_t kRecordDistance = 'DIST';  // stored in hundreds of game units
+	constexpr std::uint32_t kRecordStoredIn = 'STRD';
+	constexpr std::uint32_t kRecordTaken = 'TAKN';     // how the challenge was taken, then the day in hundredths
 	constexpr std::uint32_t kRecordVersion = 1;
 
 	constexpr std::size_t kMaxKills = 2048;
@@ -321,6 +323,45 @@ std::int32_t Ledger::Promote(RE::FormID a_form, std::int32_t a_count)
 	return moved;
 }
 
+std::int32_t Ledger::Demote(RE::FormID a_form, std::int32_t a_count)
+{
+	std::scoped_lock lock(_lock);
+	const auto       moved = TakeEarned(kPlayer, a_form, a_count);
+	if (moved > 0) {
+		_unearned[a_form] += moved;
+	}
+	return moved;
+}
+
+void Ledger::NoteStoredIn(RE::FormID a_actorRef)
+{
+	if (a_actorRef == 0) {
+		return;
+	}
+	std::scoped_lock lock(_lock);
+	if (!_storedIn.insert(a_actorRef).second) {
+		return;
+	}
+	_storedOrder.push_back(a_actorRef);
+	while (_storedOrder.size() > kMaxKills) {
+		_storedIn.erase(_storedOrder.front());
+		_storedOrder.pop_front();
+	}
+}
+
+bool Ledger::WasStoredIn(RE::FormID a_actorRef) const
+{
+	std::scoped_lock lock(_lock);
+	return _storedIn.contains(a_actorRef);
+}
+
+void Ledger::SetTaken(float a_day, Joined a_joined)
+{
+	std::scoped_lock lock(_lock);
+	_takenOnDay = std::max(0.0F, a_day);
+	_joined = a_joined;
+}
+
 void Ledger::EarnPack(RE::FormID a_form, std::int32_t a_actual)
 {
 	std::scoped_lock lock(_lock);
@@ -381,6 +422,8 @@ Ledger::Snapshot Ledger::TakeSnapshot() const
 	snapshot.consoleOpened = _consoleOpened;
 	snapshot.deaths = _deaths;
 	snapshot.distance = _distance;
+	snapshot.takenOnDay = _takenOnDay;
+	snapshot.joined = _joined;
 	return snapshot;
 }
 
@@ -412,6 +455,10 @@ void Ledger::ClearLocked()
 	_made.clear();
 	_killOrder.clear();
 	_kills.clear();
+	_storedOrder.clear();
+	_storedIn.clear();
+	_takenOnDay = -1.0F;
+	_joined = Joined::kUnknown;
 }
 
 void Ledger::Clear()
@@ -529,6 +576,20 @@ void Ledger::OnSave(SKSE::SerializationInterface* a_intfc)
 		a_intfc->WriteRecordData(static_cast<std::uint32_t>(std::min(self._distance / 100.0, 4.0e9)));
 	}
 
+	if (a_intfc->OpenRecord(kRecordStoredIn, kRecordVersion)) {
+		const auto count = static_cast<std::uint32_t>(self._storedOrder.size());
+		a_intfc->WriteRecordData(count);
+		for (const auto ref : self._storedOrder) {
+			a_intfc->WriteRecordData(ref);
+		}
+	}
+	if (self._joined != Joined::kUnknown && a_intfc->OpenRecord(kRecordTaken, kRecordVersion)) {
+		const auto joined = static_cast<std::uint32_t>(self._joined);
+		const auto day = static_cast<std::uint32_t>(std::min(std::max(0.0F, self._takenOnDay) * 100.0F, 4.0e9F));
+		a_intfc->WriteRecordData(joined);
+		a_intfc->WriteRecordData(day);
+	}
+
 	if (a_intfc->OpenRecord(kRecordRaceKills, kRecordVersion)) {
 		const auto count = static_cast<std::uint32_t>(self._killsByRace.size());
 		a_intfc->WriteRecordData(count);
@@ -582,8 +643,35 @@ void Ledger::OnLoad(SKSE::SerializationInterface* a_intfc)
 			self._deaths = count;
 			break;
 		case kRecordStartCell:
-			// An interior room of the base game or a full plugin: the id is kept as saved.
-			self._startCell = count;
+			{
+				// The value read as the count is the room's id, as it was in the load order of the save.
+				RE::FormID cell = 0;
+				self._startCell = count != 0 && Resolve(a_intfc, count, cell) ? cell : 0;
+			}
+			break;
+		case kRecordTaken:
+			{
+				// The value read as the count is how the challenge was taken; the day follows.
+				std::uint32_t day = 0;
+				if (a_intfc->ReadRecordData(day)) {
+					self._joined = count == static_cast<std::uint32_t>(Joined::kNew) ? Joined::kNew :
+								   count == static_cast<std::uint32_t>(Joined::kExisting) ? Joined::kExisting : Joined::kUnknown;
+					self._takenOnDay = self._joined == Joined::kUnknown ? -1.0F : static_cast<float>(day) / 100.0F;
+				}
+			}
+			break;
+		case kRecordStoredIn:
+			for (std::uint32_t i = 0; i < count; ++i) {
+				std::uint32_t oldRef = 0;
+				if (!a_intfc->ReadRecordData(oldRef)) {
+					logger::warn("truncated stored-in record after {} of {} entries", i, count);
+					break;
+				}
+				RE::FormID ref = 0;
+				if (Resolve(a_intfc, oldRef, ref) && self._storedIn.insert(ref).second) {
+					self._storedOrder.push_back(ref);
+				}
+			}
 			break;
 		case kRecordDistance:
 			self._distance = static_cast<double>(count) * 100.0;

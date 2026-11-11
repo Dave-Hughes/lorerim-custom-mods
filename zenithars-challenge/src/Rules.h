@@ -22,8 +22,10 @@ namespace Rules
 	// Raw materials the player must gather: ore and ingots, firewood, hides and leather.
 	[[nodiscard]] bool IsGatheredMaterial(const RE::TESForm* a_item);
 
-	// Raw fruit and vegetables, free under the challenge.
+	// Raw fruit and vegetables, free under the challenge, and flour and salt with them.
 	[[nodiscard]] bool IsRawProduce(const RE::TESForm* a_item);
+	// The part of that which goes by the item's name alone.
+	[[nodiscard]] bool IsProduceName(std::string_view a_name);
 
 	// Scrolls and staves: magic the challenge forbids, whoever made them.
 	[[nodiscard]] bool IsMagicItem(const RE::TESForm* a_item);
@@ -31,7 +33,7 @@ namespace Rules
 	[[nodiscard]] bool IsSoulGem(const RE::TESForm* a_item);
 
 	// Weapons (not staves, not tools), anything worn (armor, shields, clothing, jewelry, cloaks, bags) and
-	// ammunition: must be made by the player to be used. bRestrictClothing=0 narrows "worn" to light and heavy armor.
+	// ammunition: must be made by the player to be used.
 	[[nodiscard]] bool MustBeOwnGear(const RE::TESForm* a_item);
 	// Anything that must be the player's own: gear, food, potions, gathered materials, gems and soul gems.
 	[[nodiscard]] bool MustBeOwn(const RE::TESForm* a_item);

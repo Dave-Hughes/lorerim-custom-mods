@@ -6,6 +6,8 @@
 #include "Rules.h"
 #include "Settings.h"
 
+#include <optional>
+
 namespace
 {
 	using namespace Rules;
@@ -42,6 +44,7 @@ namespace
 		RE::FormID        base{ 0 };
 		Clock::time_point when{};
 		bool              purse{ false };  // the thing activated was a coin purse
+		bool              plant{ false };  // the thing activated was a plant or a tree that can be picked
 	};
 
 	// Quest rewards. A reward is handed over by a script, so it arrives "from nowhere", within a
@@ -60,6 +63,7 @@ namespace
 	std::mutex g_activatedLock;
 	Activated  g_activated;
 	constexpr auto kPickupWindow = 3s;
+	constexpr auto kHarvestWindow = 5s;  // picking a plant can play an animation first
 
 	// Eating or drinking is reported twice a few milliseconds apart for a single item (seen in
 	// LoreRim 5.0.4.8). The second report within this window is ignored.
@@ -179,15 +183,26 @@ namespace
 							  a_actor->HasKeywordString("ActorTypeDragon"sv));
 	}
 
-	// True when the container is the body of an animal the player hunted.
+	// True when the container is the body of an animal the player hunted. A body the player has put
+	// anything into no longer is: otherwise loot could be passed through it and come out as hunted.
 	[[nodiscard]] bool IsHuntedBody(RE::FormID a_container)
 	{
 		const auto actor = RE::TESForm::LookupByID<RE::Actor>(a_container);
-		if (!actor || !actor->IsDead() || !IsHuntable(actor)) {
+		if (!actor || !actor->IsDead() || !IsHuntable(actor) || Ledger::Get().WasStoredIn(a_container)) {
 			return false;
 		}
-		return Settings::bCountOthersKills.GetValue() || (Ledger::Get().Options() & Option::kOthersKills) != 0 ||
-			   Ledger::Get().WasKilledByPlayer(a_container);
+		return (Ledger::Get().Options() & Option::kOthersKills) != 0 || Ledger::Get().WasKilledByPlayer(a_container);
+	}
+
+	// What hunting gives: hides, meat and the other parts of the animal. Not what a creature happened
+	// to be carrying: its gear, gems, soul gems, scrolls, potions and poisons are loot like any other.
+	[[nodiscard]] bool CountsAsHunted(const RE::TESForm* a_item)
+	{
+		if (!a_item || IsGear(a_item) || IsGem(a_item) || IsSoulGem(a_item) || IsMagicItem(a_item)) {
+			return false;
+		}
+		const auto alch = a_item->As<RE::AlchemyItem>();
+		return !alch || alch->IsFood();
 	}
 
 	void ShowMade(const RE::TESForm* a_item, std::int32_t a_count, Source a_source)
@@ -283,13 +298,6 @@ void Events::SetArmed(bool a_armed)
 
 Mode Events::CurrentMode()
 {
-	const auto forced = Settings::sForceMode.GetValue();
-	if (EqualsNoCase(forced, "oath"sv)) {
-		return Mode::kOath;
-	}
-	if (EqualsNoCase(forced, "off"sv)) {
-		return Mode::kOff;
-	}
 	const auto stored = Ledger::Get().StoredMode();
 	return stored == Mode::kOath ? Mode::kOath : Mode::kOff;
 }
@@ -304,31 +312,37 @@ namespace
 		}
 	}
 
-	// The game takes food or drink out of the pack a moment before it asks to use it. When that was
-	// the player's last own copy, the count is already at nothing by the time the question comes, so
-	// the copy that just left is remembered here and answers for it.
-	struct OwnUse
+	// What the ledger did when food or drink last left the pack. The game takes the item out a moment
+	// before it asks to use it (Actor::DrinkPotion), and reports some food (fruit, bread, cheese, wine)
+	// as dropped rather than used up. Until that question comes, eating cannot be told from dropping,
+	// and the count may already be at nothing for the player's last own copy. So what just left is
+	// remembered here, and the hook settles it.
+	struct LeftPack
 	{
 		RE::FormID        form{ 0 };
+		std::int32_t      count{ 0 };
+		std::int32_t      earned{ 0 };      // how many of them the ledger took as the player's own
+		bool              dropped{ false }; // reported as a drop: the own copies went to the ground's count
 		Clock::time_point when{};
 	};
-	std::mutex g_ownUseLock;
-	OwnUse     g_ownUse;
+	std::mutex g_leftLock;
+	LeftPack   g_left;
 
-	void NoteOwnUse(RE::FormID a_form)
+	void NoteLeft(RE::FormID a_form, std::int32_t a_count, std::int32_t a_earned, bool a_dropped)
 	{
-		std::scoped_lock lock(g_ownUseLock);
-		g_ownUse = { a_form, Clock::now() };
+		std::scoped_lock lock(g_leftLock);
+		g_left = { a_form, a_count, a_earned, a_dropped, Clock::now() };
 	}
 
-	[[nodiscard]] bool JustUsedOwn(RE::FormID a_form)
+	[[nodiscard]] std::optional<LeftPack> TakeLeft(RE::FormID a_form)
 	{
-		std::scoped_lock lock(g_ownUseLock);
-		const auto       own = g_ownUse.form == a_form && Clock::now() - g_ownUse.when <= std::chrono::seconds(2);
-		if (own) {
-			g_ownUse = {};
+		std::scoped_lock lock(g_leftLock);
+		if (g_left.form != a_form || Clock::now() - g_left.when > 1s) {
+			return std::nullopt;
 		}
-		return own;
+		const auto left = g_left;
+		g_left = {};
+		return left;
 	}
 
 	// food and potions that are not the player's own are refused before they are used.
@@ -337,10 +351,33 @@ namespace
 	{
 		static bool thunk(RE::Actor* a_this, RE::AlchemyItem* a_potion, RE::ExtraDataList* a_extraList)
 		{
-			if (a_potion && Judging() && MustBeOwn(a_potion) &&
-				Ledger::Get().Earned(Ledger::kPlayer, a_potion->GetFormID()) <= 0 && !JustUsedOwn(a_potion->GetFormID())) {
+			if (!a_potion) {
+				return func(a_this, a_potion, a_extraList);
+			}
+			auto&      ledger = Ledger::Get();
+			const auto form = a_potion->GetFormID();
+			const auto left = TakeLeft(form);
+			// How many of the copies being eaten are the player's own.
+			auto         own = left ? left->earned : 0;
+			std::int32_t swapped = 0;
+			if (left && left->dropped) {
+				// Eaten, not dropped: nothing of it lies on the ground.
+				ledger.Consume(kGround, form, left->earned);
+				// Own copies are eaten first. A drop takes the not-yours copies first, so that is put
+				// right: holding one loaf of your own does not let you eat the looted ones.
+				swapped = ledger.Demote(form, left->count - left->earned);
+				own += swapped;
+			}
+			const auto mine = left ? own >= left->count : ledger.Earned(Ledger::kPlayer, form) > 0;
+			if (Judging() && MustBeOwn(a_potion) && !mine) {
+				if (left) {
+					// Refused, so nothing left the pack after all: the counts go back as they were.
+					ledger.AddEarned(form, left->earned);
+					ledger.Promote(form, swapped);
+					ledger.AddUnearned(form, left->count - left->earned);
+				}
 				const auto name = ItemName(a_potion);
-				logger::info("refused: {} [{:08X}] not consumed", name, a_potion->GetFormID());
+				logger::info("refused: {} [{:08X}] not consumed", name, form);
 				ShowLine(a_potion->IsFood() ? std::format("{} was not cooked by you.", name) :
 											  std::format("{} was not brewed by you.", name));
 				return false;
@@ -703,7 +740,7 @@ void Events::OnAddedToPack(const RE::TESContainerChangedEvent& a_event, RE::TESF
 
 	// From a container, a merchant or a body.
 	if (a_event.oldContainer != 0) {
-		if (!IsGear(a_item) && IsHuntedBody(a_event.oldContainer)) {
+		if (CountsAsHunted(a_item) && IsHuntedBody(a_event.oldContainer)) {
 			ledger.Consume(a_event.oldContainer, form, count);
 			Mint(a_item, count, Source::kHunted);
 			return;
@@ -761,6 +798,19 @@ void Events::OnAddedToPack(const RE::TESContainerChangedEvent& a_event, RE::TESF
 	}
 
 	// From nowhere: a bench, a vein, a chopping block, or a script.
+	//
+	// Handed over while the console is open: a console command. Asked first, so a console item is
+	// never taken for something made at a bench or dug from a vein. The item is not yours, and the
+	// run says so, since console materials could otherwise be crafted into gear that counts.
+	if (const auto ui = RE::UI::GetSingleton(); ui && ui->IsMenuOpen(RE::Console::MENU_NAME)) {
+		ledger.AddUnearned(form, count);
+		logger::debug("pack +{} {} [{:08X}] with the console open: not yours", count, ItemName(a_item), form);
+		if (Judging()) {
+			Break(Rule::kConsole, a_item, count, std::format("{} x{} was added with the console.", ItemName(a_item), count));
+		}
+		return;
+	}
+
 	const auto bench = CurrentBench();
 	if (bench == Bench::kImprove) {
 		std::int32_t back = 0;
@@ -794,15 +844,22 @@ void Events::OnAddedToPack(const RE::TESContainerChangedEvent& a_event, RE::TESF
 		}
 	}
 
-	ledger.AddUnearned(form, count);
-	// Handed over while the console is open: a console command. The item is not yours like anything
-	// else from nowhere, and the run says so, since console materials could otherwise be crafted
-	// into gear that counts.
-	if (const auto ui = RE::UI::GetSingleton(); ui && ui->IsMenuOpen(RE::Console::MENU_NAME) && Judging()) {
-		Break(Rule::kConsole, a_item, count, std::format("{} x{} was added with the console.", ItemName(a_item), count));
-	}
 	const auto options = ledger.Options();
 	const auto now = Clock::now();
+
+	// Picked from a plant by the player's own hand. Ingredients and raw produce are free to use
+	// wherever they come from; gathered like this they are the player's own work too, and may be sold.
+	// (Meat off a hanging rack is picked the same way and does not count: it is not free.)
+	if (a_item->Is(RE::FormType::Ingredient) || IsRawProduce(a_item)) {
+		std::scoped_lock lock(g_activatedLock);
+		if (g_activated.plant && now - g_activated.when <= kHarvestWindow) {
+			ledger.AddEarned(form, count);
+			logger::debug("pack +{} {} [{:08X}] picked from a plant: yours", count, ItemName(a_item), form);
+			return;
+		}
+	}
+
+	ledger.AddUnearned(form, count);
 
 	// Still in the starting room: anything handed over here is the alternate start's own gear, and
 	// follows the Starting Gear rule alone. The start is a quest, so without this the Quest Rewards
@@ -852,6 +909,13 @@ void Events::OnLeftPack(const RE::TESContainerChangedEvent& a_event, RE::TESForm
 	if (a_event.newContainer != 0) {
 		const auto ui = RE::UI::GetSingleton();
 		const auto selling = ui && ui->IsMenuOpen(RE::BarterMenu::MENU_NAME);
+		if (const auto body = RE::TESForm::LookupByID<RE::Actor>(a_event.newContainer); body && body->IsDead() && !ledger.WasStoredIn(a_event.newContainer)) {
+			if (Judging() && IsHuntedBody(a_event.newContainer)) {
+				ShowLine("You put something in this body. What you take from it no longer counts as hunted.");
+			}
+			ledger.NoteStoredIn(a_event.newContainer);
+			logger::debug("the player stored something in the body {:08X}: nothing from it counts as hunted now", a_event.newContainer);
+		}
 		const auto earned = ledger.Transfer(Ledger::kPlayer, a_event.newContainer, form, count, selling);
 		logger::debug("pack -{} {} [{:08X}] to {:08X}{}: {} yours", count, ItemName(a_item), form, a_event.newContainer, selling ? " (sold)" : "", earned);
 		if (selling && Judging() && earned < count) {
@@ -875,8 +939,8 @@ void Events::OnLeftPack(const RE::TESContainerChangedEvent& a_event, RE::TESForm
 			g_lastUsed = { form, count, now };
 		}
 		const auto earned = ledger.Transfer(Ledger::kPlayer, kGround, form, count);
-		if (earned > 0 && a_item->Is(RE::FormType::AlchemyItem)) {
-			NoteOwnUse(form);  // eating is sometimes reported as a drop
+		if (a_item->Is(RE::FormType::AlchemyItem) && CurrentBench() == Bench::kNone) {
+			NoteLeft(form, count, earned, true);  // eating is sometimes reported as a drop; the hook settles which it was
 		}
 		logger::debug("pack -{} {} [{:08X}] dropped: {} yours", count, ItemName(a_item), form, earned);
 		return;
@@ -894,10 +958,11 @@ void Events::OnLeftPack(const RE::TESContainerChangedEvent& a_event, RE::TESForm
 		g_lastUsed = { form, count, now };
 	}
 	const auto bench = CurrentBench();
-	// the game reports food and potions as used up a moment before it asks to use them, and
-	// the refusal comes at that second step. Nothing was eaten, so nothing is counted or recorded.
-	if (bench == Bench::kNone && a_item->Is(RE::FormType::AlchemyItem) && Judging() && MustBeOwn(a_item) &&
-		ledger.Earned(Ledger::kPlayer, form) <= 0) {
+	const auto alch = a_item->As<RE::AlchemyItem>();
+	// The game reports food and potions as used up a moment before it asks to use them, and the
+	// refusal comes at that second step. Nothing was eaten, so nothing is counted or recorded.
+	// A poison is never asked about: putting it on a weapon is the use, so it goes on to be counted.
+	if (bench == Bench::kNone && alch && !alch->IsPoison() && Judging() && MustBeOwn(a_item) && ledger.Earned(Ledger::kPlayer, form) <= 0) {
 		logger::debug("pack -{} {} [{:08X}] reported used, about to be refused: not counted", count, ItemName(a_item), form);
 		return;
 	}
@@ -909,8 +974,8 @@ void Events::OnLeftPack(const RE::TESContainerChangedEvent& a_event, RE::TESForm
 		return;
 	}
 	const auto earned = ledger.Consume(Ledger::kPlayer, form, count);
-	if (earned > 0 && bench == Bench::kNone && a_item->Is(RE::FormType::AlchemyItem)) {
-		NoteOwnUse(form);
+	if (bench == Bench::kNone && alch) {
+		NoteLeft(form, count, earned, false);
 	}
 	if (earned > 0 && bench == Bench::kImprove) {
 		std::scoped_lock lock(g_benchLock);
@@ -921,17 +986,24 @@ void Events::OnLeftPack(const RE::TESContainerChangedEvent& a_event, RE::TESForm
 	if (!Judging() || earned >= count) {
 		return;
 	}
+	const auto notYours = count - earned;
 	if (bench == Bench::kNone) {
-		// Eaten, drunk or applied.
-		if (const auto alch = a_item->As<RE::AlchemyItem>(); alch && !IsFromAllowedPlugin(a_item)) {
+		// Used without the game asking first: a poison put on a weapon, in practice. It cannot be
+		// stopped from here, so it is written to the run. (Free food, such as a looted cabbage, is no rule broken.)
+		if (alch && MustBeOwn(a_item)) {
 			if (alch->IsFood()) {
-				Break(Rule::kFood, a_item, count - earned, std::format("{} was not cooked by you.", ItemName(a_item)));
+				Break(Rule::kFood, a_item, notYours, std::format("{} was not cooked by you.", ItemName(a_item)));
 			} else {
-				Break(Rule::kPotion, a_item, count - earned, std::format("{} was not brewed by you.", ItemName(a_item)));
+				Break(Rule::kPotion, a_item, notYours, std::format("{} was not brewed by you.", ItemName(a_item)));
 			}
 		}
-	} else if (bench == Bench::kMake && IsGatheredMaterial(a_item)) {
-		Break(Rule::kMaterial, a_item, count - earned, std::format("{} x{} was not gathered by you.", ItemName(a_item), count - earned));
+	} else if (IsGatheredMaterial(a_item) || IsGem(a_item)) {
+		// Smelted, forged with or tempered with: ore, ingots, firewood, hides and gems must be gathered.
+		Break(Rule::kMaterial, a_item, notYours, std::format("{} x{} was not gathered by you.", ItemName(a_item), notYours));
+	} else if (bench == Bench::kMake && MustBeOwnGear(a_item)) {
+		// Gear melted down or built into something new. (At a grindstone, workbench or enchanter the
+		// gear is the thing being worked on, not a material, and it comes back as it went in.)
+		Break(Rule::kMaterial, a_item, notYours, std::format("{} x{} was not yours to craft with.", ItemName(a_item), notYours));
 	}
 }
 
@@ -1030,7 +1102,8 @@ RE::BSEventNotifyControl Events::ProcessEvent(const RE::TESActivateEvent* a_even
 		return RE::BSEventNotifyControl::kContinue;
 	}
 	std::scoped_lock lock(g_activatedLock);
-	g_activated = { a_event->objectActivated->GetFormID(), base->GetFormID(), Clock::now(), ContainsNoCase(ItemName(base), "purse"sv) };
+	g_activated = { a_event->objectActivated->GetFormID(), base->GetFormID(), Clock::now(), ContainsNoCase(ItemName(base), "purse"sv),
+		base->Is(RE::FormType::Flora) || base->Is(RE::FormType::Tree) };
 	return RE::BSEventNotifyControl::kContinue;
 }
 
@@ -1170,7 +1243,7 @@ std::int32_t Events::NotYoursIfTaken(RE::FormID a_holder, const RE::TESForm* a_i
 	if (!a_item || a_count <= 0 || !MustBeOwn(a_item)) {
 		return 0;
 	}
-	if ((!IsGear(a_item) && IsHuntedBody(a_holder)) || LootAllowed(a_item)) {
+	if ((CountsAsHunted(a_item) && IsHuntedBody(a_holder)) || LootAllowed(a_item)) {
 		return 0;
 	}
 	return a_count - std::min(a_count, Ledger::Get().Earned(a_holder, a_item->GetFormID()));

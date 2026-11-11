@@ -40,6 +40,15 @@ enum class Mode : std::uint8_t
 	kOath,       // the challenge: breaking a rule is refused
 };
 
+// How the character came to the challenge: asked as a new character, or an existing character asked later
+// (only with the bAskOnLoad switch). Unknown for saves from builds that did not record it.
+enum class Joined : std::uint8_t
+{
+	kUnknown = 0,
+	kNew,
+	kExisting,
+};
+
 // The rules the challenge leaves to the player, chosen with the mode. A set bit means "allowed".
 namespace Option
 {
@@ -92,6 +101,8 @@ public:
 		std::uint32_t                                    consoleOpened{ 0 };
 		std::uint32_t                                    deaths{ 0 };
 		double                                           distance{ 0.0 };  // game units walked, ridden or swum
+		float                                            takenOnDay{ -1.0F };  // in-game days passed when the challenge was taken; -1 if not recorded
+		Joined                                           joined{ Joined::kUnknown };
 	};
 
 	static constexpr RE::FormID kPlayer = 0x14;
@@ -154,6 +165,17 @@ public:
 	std::int32_t Promote(RE::FormID a_form, std::int32_t a_count);
 	// Everything the pack holds of this item becomes the player's own (the "keep starting items" choice).
 	void EarnPack(RE::FormID a_form, std::int32_t a_actual);
+	// The other way: up to n of the player's own copies in the pack are counted as not theirs. Returns how
+	// many. Used when a not-yours copy was taken as leaving and an own copy was in fact the one eaten.
+	std::int32_t Demote(RE::FormID a_form, std::int32_t a_count);
+
+	// The player put something into this body. What comes out of it afterwards is not counted as hunted,
+	// or anything could be passed through a dead rabbit and come out the player's own.
+	void               NoteStoredIn(RE::FormID a_actorRef);
+	[[nodiscard]] bool WasStoredIn(RE::FormID a_actorRef) const;
+
+	// When and how the character took the challenge.
+	void SetTaken(float a_day, Joined a_joined);
 
 	void Clear();
 
@@ -177,6 +199,10 @@ private:
 	std::unordered_map<RE::FormID, MadeCounts> _made;     // item -> lifetime made, by source
 	std::deque<RE::FormID>                    _killOrder;
 	std::unordered_set<RE::FormID>            _kills;
+	std::deque<RE::FormID>                    _storedOrder;
+	std::unordered_set<RE::FormID>            _storedIn;  // bodies the player has put things into
+	float                                     _takenOnDay{ -1.0F };
+	Joined                                    _joined{ Joined::kUnknown };
 	std::vector<Violation>                    _violations;
 	Mode                                      _mode{ Mode::kUnset };
 	std::unordered_map<RE::FormID, std::uint32_t> _killsByRace;
