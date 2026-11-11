@@ -104,6 +104,34 @@ namespace Rules
 							 HasKeyword(a_item, "VendorItemAnimalHide"sv));
 	}
 
+	// Raw fruit and vegetables: anything a plant or tree in the game can be picked for, and anything
+	// a food mod has tagged as fruit or vegetable. The challenge leaves these free.
+	bool IsRawProduce(const RE::TESForm* a_item)
+	{
+		const auto food = a_item ? a_item->As<RE::AlchemyItem>() : nullptr;
+		if (!food || !food->IsFood()) {
+			return false;
+		}
+		static const auto picked = []() {
+			std::unordered_set<RE::FormID> forms;
+			if (const auto data = RE::TESDataHandler::GetSingleton()) {
+				for (const auto flora : data->GetFormArray<RE::TESFlora>()) {
+					if (flora && flora->produceItem) {
+						forms.insert(flora->produceItem->GetFormID());
+					}
+				}
+				for (const auto tree : data->GetFormArray<RE::TESObjectTREE>()) {
+					if (tree && tree->produceItem) {
+						forms.insert(tree->produceItem->GetFormID());
+					}
+				}
+			}
+			logger::info("raw produce: {} kinds of thing can be picked from plants and trees", forms.size());
+			return forms;
+		}();
+		return picked.contains(a_item->GetFormID()) || HasKeyword(a_item, "VendorItemFruit"sv) || HasKeyword(a_item, "VendorItemVegetable"sv);
+	}
+
 	bool MustBeOwnGear(const RE::TESForm* a_item)
 	{
 		if (!a_item) {
@@ -129,7 +157,7 @@ namespace Rules
 			return false;
 		}
 		if (a_item->Is(RE::FormType::AlchemyItem)) {
-			return !IsFromAllowedPlugin(a_item);
+			return !IsFromAllowedPlugin(a_item) && !IsRawProduce(a_item);
 		}
 		return MustBeOwnGear(a_item) || IsGatheredMaterial(a_item) || IsGem(a_item) || IsSoulGem(a_item);
 	}

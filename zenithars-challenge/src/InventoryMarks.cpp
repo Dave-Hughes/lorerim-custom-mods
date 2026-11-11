@@ -361,7 +361,17 @@ namespace
 						break;
 					}
 				}
-				notYours = NotYoursInTarget(shownName, static_cast<std::int32_t>(Number(a_params.args[0], "count", 1.0)));
+				const auto count = static_cast<std::int32_t>(Number(a_params.args[0], "count", 1.0));
+				// The row says which item it is; the name is only a fallback, since an enchanted or
+				// renamed item is not shown under the name its record has.
+				const auto formID = static_cast<RE::FormID>(Number(a_params.args[0], "formId", 0.0));
+				const auto target = RE::TESForm::LookupByID<RE::TESObjectREFR>(g_crosshairRef.load());
+				const auto object = formID != 0 ? RE::TESForm::LookupByID<RE::TESBoundObject>(formID) : nullptr;
+				if (target && object) {
+					notYours = Events::NotYoursIfTaken(target->GetFormID(), object, std::max(1, count));
+				} else {
+					notYours = NotYoursInTarget(shownName, count);
+				}
 			}
 			// The first rows are written to the log in full, to see what the window hands over.
 			static std::atomic_int logged{ 0 };

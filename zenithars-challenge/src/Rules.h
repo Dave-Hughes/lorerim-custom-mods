@@ -22,6 +22,9 @@ namespace Rules
 	// Raw materials the player must gather: ore and ingots, firewood, hides and leather.
 	[[nodiscard]] bool IsGatheredMaterial(const RE::TESForm* a_item);
 
+	// Raw fruit and vegetables, free under the challenge.
+	[[nodiscard]] bool IsRawProduce(const RE::TESForm* a_item);
+
 	[[nodiscard]] bool IsGem(const RE::TESForm* a_item);
 	[[nodiscard]] bool IsSoulGem(const RE::TESForm* a_item);
 

@@ -767,6 +767,20 @@ void Events::OnAddedToPack(const RE::TESContainerChangedEvent& a_event, RE::TESF
 	const auto options = ledger.Options();
 	const auto now = Clock::now();
 
+	// Still in the starting room: anything handed over here is the alternate start's own gear, and
+	// follows the Starting Gear rule alone. The start is a quest, so without this the Quest Rewards
+	// rule would claim the lot.
+	if (ledger.StartCell() != 0 && Judging()) {
+		if ((options & Option::kStartingItems) != 0) {
+			ledger.Promote(form, count);
+			logger::debug("pack +{} {} [{:08X}] handed over at the start: yours (allowed starting gear)", count, ItemName(a_item), form);
+			return;
+		}
+		logger::debug("pack +{} {} [{:08X}] handed over at the start: not yours", count, ItemName(a_item), form);
+		ShowNotYours(a_item, count);
+		return;
+	}
+
 	// A gem out of a coin purse, if the player allowed those.
 	if (IsGem(a_item) && (options & Option::kCoinPurseGems) != 0) {
 		std::scoped_lock lock(g_activatedLock);
@@ -1087,7 +1101,7 @@ RE::BSEventNotifyControl Events::ProcessEvent(const RE::TESQuestStageEvent* a_ev
 		}
 		g_arrivals.clear();
 	}
-	if ((Ledger::Get().Options() & Option::kQuestRewards) != 0) {
+	if ((Ledger::Get().Options() & Option::kQuestRewards) != 0 && Ledger::Get().StartCell() == 0) {
 		for (const auto& arrival : claimed) {
 			const auto moved = Ledger::Get().Promote(arrival.form, arrival.count);
 			logger::debug("quest {:08X} moved to stage {}: {} x{} just handed over counts as yours (allowed quest reward)", a_event->formID, a_event->stage,
