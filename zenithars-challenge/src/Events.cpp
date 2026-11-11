@@ -304,6 +304,33 @@ namespace
 		}
 	}
 
+	// The game takes food or drink out of the pack a moment before it asks to use it. When that was
+	// the player's last own copy, the count is already at nothing by the time the question comes, so
+	// the copy that just left is remembered here and answers for it.
+	struct OwnUse
+	{
+		RE::FormID        form{ 0 };
+		Clock::time_point when{};
+	};
+	std::mutex g_ownUseLock;
+	OwnUse     g_ownUse;
+
+	void NoteOwnUse(RE::FormID a_form)
+	{
+		std::scoped_lock lock(g_ownUseLock);
+		g_ownUse = { a_form, Clock::now() };
+	}
+
+	[[nodiscard]] bool JustUsedOwn(RE::FormID a_form)
+	{
+		std::scoped_lock lock(g_ownUseLock);
+		const auto       own = g_ownUse.form == a_form && Clock::now() - g_ownUse.when <= std::chrono::seconds(2);
+		if (own) {
+			g_ownUse = {};
+		}
+		return own;
+	}
+
 	// food and potions that are not the player's own are refused before they are used.
 	// Actor::DrinkPotion is what the game calls for both.
 	struct DrinkPotionHook
@@ -311,7 +338,7 @@ namespace
 		static bool thunk(RE::Actor* a_this, RE::AlchemyItem* a_potion, RE::ExtraDataList* a_extraList)
 		{
 			if (a_potion && Judging() && MustBeOwn(a_potion) &&
-				Ledger::Get().Earned(Ledger::kPlayer, a_potion->GetFormID()) <= 0) {
+				Ledger::Get().Earned(Ledger::kPlayer, a_potion->GetFormID()) <= 0 && !JustUsedOwn(a_potion->GetFormID())) {
 				const auto name = ItemName(a_potion);
 				logger::info("refused: {} [{:08X}] not consumed", name, a_potion->GetFormID());
 				ShowLine(a_potion->IsFood() ? std::format("{} was not cooked by you.", name) :
@@ -837,6 +864,9 @@ void Events::OnLeftPack(const RE::TESContainerChangedEvent& a_event, RE::TESForm
 	// Dropped on the ground.
 	if (const auto world = GetWorldRef(a_event); world.present) {
 		const auto earned = ledger.Transfer(Ledger::kPlayer, kGround, form, count);
+		if (earned > 0 && a_item->Is(RE::FormType::AlchemyItem)) {
+			NoteOwnUse(form);  // eating is sometimes reported as a drop
+		}
 		logger::debug("pack -{} {} [{:08X}] dropped: {} yours", count, ItemName(a_item), form, earned);
 		return;
 	}
@@ -868,6 +898,9 @@ void Events::OnLeftPack(const RE::TESContainerChangedEvent& a_event, RE::TESForm
 		return;
 	}
 	const auto earned = ledger.Consume(Ledger::kPlayer, form, count);
+	if (earned > 0 && bench == Bench::kNone && a_item->Is(RE::FormType::AlchemyItem)) {
+		NoteOwnUse(form);
+	}
 	if (earned > 0 && bench == Bench::kImprove) {
 		std::scoped_lock lock(g_benchLock);
 		g_benchPending[form] += earned;
