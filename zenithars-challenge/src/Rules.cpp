@@ -126,6 +126,13 @@ namespace Rules
 		if (HasKeyword(a_item, "VendorItemFruit"sv) || HasKeyword(a_item, "VendorItemVegetable"sv)) {
 			return true;
 		}
+		// Cooking staples, free whether or not something can make them (Dave, 10 Nov).
+		{
+			const auto staple = ItemName(a_item);
+			if (ContainsNoCase(staple, "flour"sv) || ContainsNoCase(staple, "salt"sv)) {
+				return true;
+			}
+		}
 		// The game's records do not tell a carrot from a cheese, and "what can be picked" will not do
 		// either: hanging pheasants, rabbits and salmon are picked the same way as a cabbage, and
 		// meat from hanging game does not count. So: food named for a fruit or vegetable that no
