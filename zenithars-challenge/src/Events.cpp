@@ -863,6 +863,17 @@ void Events::OnLeftPack(const RE::TESContainerChangedEvent& a_event, RE::TESForm
 
 	// Dropped on the ground.
 	if (const auto world = GetWorldRef(a_event); world.present) {
+		if (a_item->Is(RE::FormType::AlchemyItem) && CurrentBench() == Bench::kNone) {
+			// Eating is sometimes reported as a drop and then again as used up: one item, one count.
+			std::scoped_lock lock(g_usedLock);
+			const auto       now = Clock::now();
+			if (g_lastUsed.form == form && g_lastUsed.count == count && now - g_lastUsed.when <= kDoubleReportWindow) {
+				g_lastUsed = {};
+				logger::debug("pack -{} {} [{:08X}] dropped: second report of the same item, ignored", count, ItemName(a_item), form);
+				return;
+			}
+			g_lastUsed = { form, count, now };
+		}
 		const auto earned = ledger.Transfer(Ledger::kPlayer, kGround, form, count);
 		if (earned > 0 && a_item->Is(RE::FormType::AlchemyItem)) {
 			NoteOwnUse(form);  // eating is sometimes reported as a drop
