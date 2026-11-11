@@ -116,36 +116,20 @@ namespace Rules
 							 HasKeyword(a_item, "VendorItemAnimalHide"sv));
 	}
 
-	// Raw fruit and vegetables: anything a plant or tree in the game can be picked for, and anything
-	// a food mod has tagged as fruit or vegetable. The challenge leaves these free.
+	// Raw fruit and vegetables, which the challenge leaves free.
 	bool IsRawProduce(const RE::TESForm* a_item)
 	{
 		const auto food = a_item ? a_item->As<RE::AlchemyItem>() : nullptr;
 		if (!food || !food->IsFood()) {
 			return false;
 		}
-		static const auto picked = []() {
-			std::unordered_set<RE::FormID> forms;
-			if (const auto data = RE::TESDataHandler::GetSingleton()) {
-				for (const auto flora : data->GetFormArray<RE::TESFlora>()) {
-					if (flora && flora->produceItem) {
-						forms.insert(flora->produceItem->GetFormID());
-					}
-				}
-				for (const auto tree : data->GetFormArray<RE::TESObjectTREE>()) {
-					if (tree && tree->produceItem) {
-						forms.insert(tree->produceItem->GetFormID());
-					}
-				}
-			}
-			logger::info("raw produce: {} kinds of thing can be picked from plants and trees", forms.size());
-			return forms;
-		}();
-		if (picked.contains(a_item->GetFormID()) || HasKeyword(a_item, "VendorItemFruit"sv) || HasKeyword(a_item, "VendorItemVegetable"sv)) {
+		if (HasKeyword(a_item, "VendorItemFruit"sv) || HasKeyword(a_item, "VendorItemVegetable"sv)) {
 			return true;
 		}
-		// The game's records do not tell a carrot from a cheese, and nothing grows carrots. So: food
-		// named for a fruit or vegetable that no recipe makes. A recipe makes Apple Pie and Tomato
+		// The game's records do not tell a carrot from a cheese, and "what can be picked" will not do
+		// either: hanging pheasants, rabbits and salmon are picked the same way as a cabbage, and
+		// meat from hanging game does not count. So: food named for a fruit or vegetable that no
+		// recipe makes. A recipe makes Apple Pie and Tomato
 		// Soup; none makes an Apple or a Tomato.
 		static const auto cooked = []() {
 			std::unordered_set<RE::FormID> forms;

@@ -487,13 +487,15 @@ namespace
 			const auto markX = Number(field, "_x") + Number(field, "textWidth") + Number(row, "_totalIconWidth") + 12.0;
 			// A name that fills its field leaves no room: the mark would sit on the value beside it.
 			// The name's colour says it alone then.
-			const auto fieldEnd = Number(field, "_x") + Number(field, "_width");
+			// The name field is only as wide as its text, so the limit is where the value column starts
+			// in this window's row (measured from Dave's screenshots: the value's digits begin near 365).
+			const auto fieldEnd = 350.0;
 			static std::atomic_int placed{ 0 };
 			if (placed < 6) {
 				++placed;
-				logger::debug("quick-loot mark for \"{}\": at {:.0f}, size {:.0f}, name field ends at {:.0f}", shownName, markX, size, fieldEnd);
+				logger::debug("quick-loot mark for \"{}\": at {:.0f}, size {:.0f}, limit {:.0f}", shownName, markX, size, fieldEnd);
 			}
-			if (Number(field, "_width") > 0.0 && markX + size > fieldEnd + 4.0) {
+			if (markX + size > fieldEnd) {
 				mark.SetMember("_visible", RE::GFxValue(false));
 				return;
 			}
