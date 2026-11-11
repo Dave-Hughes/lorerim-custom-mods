@@ -141,7 +141,31 @@ namespace Rules
 			logger::info("raw produce: {} kinds of thing can be picked from plants and trees", forms.size());
 			return forms;
 		}();
-		return picked.contains(a_item->GetFormID()) || HasKeyword(a_item, "VendorItemFruit"sv) || HasKeyword(a_item, "VendorItemVegetable"sv);
+		if (picked.contains(a_item->GetFormID()) || HasKeyword(a_item, "VendorItemFruit"sv) || HasKeyword(a_item, "VendorItemVegetable"sv)) {
+			return true;
+		}
+		// The game's records do not tell a carrot from a cheese, and nothing grows carrots. So: food
+		// named for a fruit or vegetable that no recipe makes. A recipe makes Apple Pie and Tomato
+		// Soup; none makes an Apple or a Tomato.
+		static const auto cooked = []() {
+			std::unordered_set<RE::FormID> forms;
+			if (const auto data = RE::TESDataHandler::GetSingleton()) {
+				for (const auto recipe : data->GetFormArray<RE::BGSConstructibleObject>()) {
+					if (recipe && recipe->createdItem) {
+						forms.insert(recipe->createdItem->GetFormID());
+					}
+				}
+			}
+			return forms;
+		}();
+		if (cooked.contains(a_item->GetFormID())) {
+			return false;
+		}
+		static constexpr std::array produce{ "apple"sv, "carrot"sv, "cabbage"sv, "potato"sv, "leek"sv, "tomato"sv, "turnip"sv, "onion"sv, "pumpkin"sv,
+			"gourd"sv, "pear"sv, "peach"sv, "plum"sv, "grape"sv, "berry"sv, "berries"sv, "melon"sv, "radish"sv, "beet"sv, "corn"sv, "lettuce"sv,
+			"cucumber"sv, "orange"sv, "lemon"sv, "fig"sv, "olive"sv, "cherry"sv, "cherries"sv, "squash"sv, "garlic"sv, "yam"sv };
+		const auto name = ItemName(a_item);
+		return std::ranges::any_of(produce, [&name](std::string_view a_word) { return ContainsNoCase(name, a_word); });
 	}
 
 	bool MustBeOwnGear(const RE::TESForm* a_item)
