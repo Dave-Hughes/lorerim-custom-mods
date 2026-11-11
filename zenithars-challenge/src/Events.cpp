@@ -194,6 +194,23 @@ namespace
 		return (Ledger::Get().Options() & Option::kOthersKills) != 0 || Ledger::Get().WasKilledByPlayer(a_container);
 	}
 
+	// True when the container is where a sale to the merchant now trading puts things: the merchant, or
+	// the chest their faction keeps its wares in. Other mods move their own items about while the
+	// barter screen is open (the quiver that carries the weight of your arrows, for one, goes to a
+	// holding container of its own); that is not a sale and is not undone. If the merchant or the
+	// chest cannot be found, anything leaving the pack counts as sold, as it always did.
+	[[nodiscard]] bool IsSaleTo(RE::FormID a_container)
+	{
+		const auto merchant = RE::TESObjectREFR::LookupByHandle(RE::BarterMenu::GetTargetRefHandle());
+		if (!merchant || merchant->GetFormID() == a_container) {
+			return true;
+		}
+		const auto actor = merchant->As<RE::Actor>();
+		const auto faction = actor ? actor->GetVendorFaction() : nullptr;
+		const auto chest = faction ? faction->vendorData.merchantContainer : nullptr;
+		return !chest || chest->GetFormID() == a_container;
+	}
+
 	// What hunting gives: hides, meat and the other parts of the animal. Not what a creature happened
 	// to be carrying: its gear, gems, soul gems, scrolls, potions and poisons are loot like any other.
 	[[nodiscard]] bool CountsAsHunted(const RE::TESForm* a_item)
@@ -908,7 +925,11 @@ void Events::OnLeftPack(const RE::TESContainerChangedEvent& a_event, RE::TESForm
 	// Into a container, a merchant or another actor.
 	if (a_event.newContainer != 0) {
 		const auto ui = RE::UI::GetSingleton();
-		const auto selling = ui && ui->IsMenuOpen(RE::BarterMenu::MENU_NAME);
+		const auto trading = ui && ui->IsMenuOpen(RE::BarterMenu::MENU_NAME);
+		const auto selling = trading && IsSaleTo(a_event.newContainer);
+		if (trading && !selling) {
+			logger::debug("pack -{} {} [{:08X}] to {:08X} while trading, but not to the merchant: not a sale", count, ItemName(a_item), form, a_event.newContainer);
+		}
 		if (const auto body = RE::TESForm::LookupByID<RE::Actor>(a_event.newContainer); body && body->IsDead() && !ledger.WasStoredIn(a_event.newContainer)) {
 			if (Judging() && IsHuntedBody(a_event.newContainer)) {
 				ShowLine("You put something in this body. What you take from it no longer counts as hunted.");
