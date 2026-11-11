@@ -699,7 +699,12 @@ void Events::OnAddedToPack(const RE::TESContainerChangedEvent& a_event, RE::TESF
 
 	// Picked up off the ground.
 	if (const auto world = GetWorldRef(a_event); world.present) {
-		const auto earned = ledger.Transfer(kGround, Ledger::kPlayer, form, count);
+		auto earned = ledger.Transfer(kGround, Ledger::kPlayer, form, count);
+		if (earned < count && LootAllowed(a_item)) {
+			// Found lying about counts the same as found in a chest.
+			ledger.EarnPack(form, ledger.Earned(Ledger::kPlayer, form) + ledger.UnearnedInPack(form));
+			earned = count;
+		}
 		logger::debug("pack +{} {} [{:08X}] picked up (ref {:08X}): {} yours", count, ItemName(a_item), form, world.id, earned);
 		ShowNotYours(a_item, count - earned);
 		return;
@@ -716,7 +721,12 @@ void Events::OnAddedToPack(const RE::TESContainerChangedEvent& a_event, RE::TESF
 			}
 		}
 		if (pickedRef != 0) {
-			const auto earned = ledger.Transfer(kGround, Ledger::kPlayer, form, count);
+			auto earned = ledger.Transfer(kGround, Ledger::kPlayer, form, count);
+			if (earned < count && LootAllowed(a_item)) {
+				// Found lying about counts the same as found in a chest.
+				ledger.EarnPack(form, ledger.Earned(Ledger::kPlayer, form) + ledger.UnearnedInPack(form));
+				earned = count;
+			}
 			logger::debug("pack +{} {} [{:08X}] picked up (activated ref {:08X}): {} yours", count, ItemName(a_item), form, pickedRef, earned);
 			ShowNotYours(a_item, count - earned);
 			return;
