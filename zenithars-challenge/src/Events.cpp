@@ -211,6 +211,22 @@ namespace
 		return !chest || chest->GetFormID() == a_container;
 	}
 
+	// When the player last put a fishing rod away. A catch is handed over as the line comes in, and
+	// the rod (the game equips a copy of it to fish with) may already be going back.
+	std::atomic<Clock::rep> g_rodAway{ 0 };
+
+	// True while the player is fishing: a rod is in hand, or was a few seconds ago.
+	[[nodiscard]] bool Fishing()
+	{
+		if (const auto player = RE::PlayerCharacter::GetSingleton()) {
+			if (IsFishingRod(player->GetEquippedObject(false)) || IsFishingRod(player->GetEquippedObject(true))) {
+				return true;
+			}
+		}
+		const auto away = g_rodAway.load();
+		return away != 0 && Clock::now().time_since_epoch().count() - away <= std::chrono::duration_cast<Clock::duration>(5s).count();
+	}
+
 	// What hunting gives: hides, meat and the other parts of the animal. Not what a creature happened
 	// to be carrying: its gear, gems, soul gems, scrolls, potions and poisons are loot like any other.
 	[[nodiscard]] bool CountsAsHunted(const RE::TESForm* a_item)
@@ -867,13 +883,22 @@ void Events::OnAddedToPack(const RE::TESContainerChangedEvent& a_event, RE::TESF
 	// Picked from a plant by the player's own hand. Ingredients and raw produce are free to use
 	// wherever they come from; gathered like this they are the player's own work too, and may be sold.
 	// (Meat off a hanging rack is picked the same way and does not count: it is not free.)
-	if (a_item->Is(RE::FormType::Ingredient) || IsRawProduce(a_item)) {
+	auto picked = false;
+	{
 		std::scoped_lock lock(g_activatedLock);
-		if (g_activated.plant && now - g_activated.when <= kHarvestWindow) {
-			ledger.AddEarned(form, count);
-			logger::debug("pack +{} {} [{:08X}] picked from a plant: yours", count, ItemName(a_item), form);
-			return;
-		}
+		picked = g_activated.plant && now - g_activated.when <= kHarvestWindow;
+	}
+	if (picked && (a_item->Is(RE::FormType::Ingredient) || IsRawProduce(a_item))) {
+		ledger.AddEarned(form, count);
+		logger::debug("pack +{} {} [{:08X}] picked from a plant: yours", count, ItemName(a_item), form);
+		return;
+	}
+
+	// Caught on the player's own line: fish count like game that was hunted. Not what was just taken
+	// off a rack with a rod in hand, and not the old boots and other gear a line can bring up.
+	if (!picked && CountsAsHunted(a_item) && Fishing()) {
+		Mint(a_item, count, Source::kHunted);
+		return;
 	}
 
 	ledger.AddUnearned(form, count);
@@ -1130,6 +1155,9 @@ RE::BSEventNotifyControl Events::ProcessEvent(const RE::TESActivateEvent* a_even
 
 RE::BSEventNotifyControl Events::ProcessEvent(const RE::TESEquipEvent* a_event, RE::BSTEventSource<RE::TESEquipEvent>*)
 {
+	if (a_event && !a_event->equipped && a_event->actor && a_event->actor->IsPlayerRef() && IsFishingRod(RE::TESForm::LookupByID(a_event->baseObject))) {
+		g_rodAway = Clock::now().time_since_epoch().count();
+	}
 	if (!Judging() || !a_event || !a_event->equipped || !a_event->actor || !a_event->actor->IsPlayerRef()) {
 		return RE::BSEventNotifyControl::kContinue;
 	}

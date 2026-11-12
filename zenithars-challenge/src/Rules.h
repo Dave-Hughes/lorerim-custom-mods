@@ -17,8 +17,9 @@ namespace Rules
 	// Water and provisions: may be consumed whoever made them.
 	[[nodiscard]] bool IsFromAllowedPlugin(const RE::TESForm* a_item);
 	[[nodiscard]] bool IsMissive(const RE::TESForm* a_item);
-	// Pickaxes and woodcutter's axes: the player may get these however they like.
+	// Pickaxes, woodcutter's axes and fishing rods: the player may get these however they like.
 	[[nodiscard]] bool IsTool(const RE::TESForm* a_item);
+	[[nodiscard]] bool IsFishingRod(const RE::TESForm* a_item);
 	// Raw materials the player must gather: ore and ingots, firewood, hides and leather.
 	[[nodiscard]] bool IsGatheredMaterial(const RE::TESForm* a_item);
 

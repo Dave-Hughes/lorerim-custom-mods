@@ -28,6 +28,7 @@ holds for the run.
 | Mined ore or gems from a vein | mined |
 | Chopped firewood at a block | chopped |
 | Took hides, meat or parts from an animal you killed | hunted |
+| Caught a fish on your own line | hunted |
 
 Everything else that enters your pack is not yours, unless one of the six rules you allowed says
 it is. Hunting gives hides, meat and parts: gear, gems, soul gems, scrolls and potions a creature
@@ -38,7 +39,7 @@ it leaves its starting room. The weapons, armor, jewelry and other gear an alter
 over are not its own, unless Starting Gear was allowed.
 
 Free however you get them: septims, ingredients, raw fruit and vegetables, flour, salt, water,
-provisions, a pickaxe and a woodcutter's axe. Ingredients and produce you pick from a plant
+provisions, a pickaxe, a woodcutter's axe and a fishing rod. Ingredients and produce you pick from a plant
 yourself are your own work as well, and may be sold.
 
 Skyrim merges looted and made copies of one item into a single stack, so the mod keeps

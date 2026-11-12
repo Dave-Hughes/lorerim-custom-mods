@@ -84,10 +84,16 @@ namespace Rules
 	}
 
 	// The challenge lets the player get a pickaxe however they like; the woodcutter's axe is treated the same.
+	bool IsFishingRod(const RE::TESForm* a_item)
+	{
+		return a_item && a_item->Is(RE::FormType::Weapon) &&
+			   (HasKeyword(a_item, "ccBGSSSE001_FishingPoleKW"sv) || ContainsNoCase(ItemName(a_item), "fishing rod"sv));
+	}
+
 	bool IsTool(const RE::TESForm* a_item)
 	{
 		const auto name = ItemName(a_item);
-		return ContainsNoCase(name, "pickaxe"sv) || ContainsNoCase(name, "woodcutter"sv);
+		return ContainsNoCase(name, "pickaxe"sv) || ContainsNoCase(name, "woodcutter"sv) || IsFishingRod(a_item);
 	}
 
 	// Raw materials the challenge says the player must gather: ore and ingots, firewood, hides and leather.
