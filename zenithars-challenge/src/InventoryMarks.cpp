@@ -323,6 +323,18 @@ namespace
 		const auto base = ref ? ref->GetBaseObject() : nullptr;
 		if (base && Events::OnChallenge() && Settings::bMarkInventory.GetValue() && !base->Is(RE::FormType::Container) && !base->Is(RE::FormType::NPC)) {
 			notYours = Rules::IsMagicItem(base) || Events::NotYoursIfTaken(0xFFFFFFFF, base, 1) > 0;  // 0xFFFFFFFF: things on the ground
+			// Something to pick from: a salmon on a table or a pheasant on a rack reads as "Salmon",
+			// and what it gives (a fillet, a breast) would not be the player's own. A cabbage plant
+			// or a herb gives something free, and keeps its plain name.
+			const RE::TESBoundObject* gives = nullptr;
+			if (const auto flora = base->As<RE::TESFlora>()) {
+				gives = flora->produceItem;
+			} else if (const auto tree = base->As<RE::TESObjectTREE>()) {
+				gives = tree->produceItem;
+			}
+			if (gives && Rules::MustBeOwn(gives)) {
+				notYours = true;
+			}
 			static std::atomic_int logged{ 0 };
 			if (notYours && logged < 5) {
 				++logged;
